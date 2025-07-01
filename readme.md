@@ -316,7 +316,7 @@ const auth = createAuthFlow({
 
 ## Migration from Previous Versions
 
-### From v1.x to v2.x
+### From v1.x to v1.1.x
 
 No breaking changes. Your existing configuration will continue to work. New features:
 

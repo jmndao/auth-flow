@@ -454,7 +454,7 @@ The configuration is validated on creation with the following rules:
 
 ## Migration Guide
 
-### Upgrading to v2.x
+### Upgrading to v1.1.x
 
 No breaking changes. Your existing configuration will continue to work. New features available:
 
@@ -479,7 +479,7 @@ const auth = createAuthFlow({
 });
 ```
 
-### After (v2.x)
+### After (v1.1.x)
 
 ```typescript
 // Still works exactly the same
