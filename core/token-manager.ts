@@ -7,7 +7,8 @@ import type {
   AuthContext,
   Environment,
 } from '../types';
-import { LocalStorageAdapter, CookieStorageAdapter, MemoryStorageAdapter } from '../adapters';
+import { LocalStorageAdapter, MemoryStorageAdapter } from '../adapters';
+import { CookieManager } from './cookie-manager';
 import { getOptimalStorageType, detectEnvironment, validateTokenPair } from '../utils';
 
 export class TokenManager {
@@ -19,11 +20,18 @@ export class TokenManager {
     tokenConfig: TokenConfig,
     storage: StorageType | StorageConfig = 'auto',
     context: AuthContext = {},
-    environment: Environment = 'auto'
+    environment: Environment = 'auto',
+    cookieManager?: CookieManager
   ) {
     this.tokenConfig = tokenConfig;
     this.environment = environment === 'auto' ? detectEnvironment() : environment;
-    this.storageAdapter = this.createStorageAdapter(storage, context);
+
+    // Use provided cookie manager if available, otherwise create storage adapter
+    if (cookieManager) {
+      this.storageAdapter = cookieManager;
+    } else {
+      this.storageAdapter = this.createStorageAdapter(storage, context);
+    }
   }
 
   private createStorageAdapter(
@@ -45,16 +53,12 @@ export class TokenManager {
         return new LocalStorageAdapter();
 
       case 'cookies':
-        return new CookieStorageAdapter(
-          { ...context, environment: this.environment === 'auto' ? undefined : this.environment },
-          storageOptions
-        );
+        return new CookieManager(context, storageOptions);
 
       case 'memory':
         return new MemoryStorageAdapter();
 
       default:
-        // Fallback to memory
         console.warn(`Unsupported storage type: ${storageType}. Using memory storage.`);
         return new MemoryStorageAdapter();
     }
@@ -129,7 +133,6 @@ export class TokenManager {
     const tokens = await this.getTokens();
     if (!tokens) return false;
 
-    // Basic validation - tokens exist and are non-empty strings
     return Boolean(
       tokens.accessToken &&
         tokens.refreshToken &&
@@ -179,20 +182,15 @@ export class TokenManager {
   // JWT token expiration check
   isTokenExpired(token: string): boolean {
     try {
-      // Basic JWT structure check
       const parts = token.split('.');
       if (parts.length !== 3) return true;
 
-      // Decode payload
       const payload = JSON.parse(atob(parts[1]));
-
-      // Check expiration
       if (!payload.exp) return false;
 
       const now = Math.floor(Date.now() / 1000);
       return payload.exp < now;
     } catch {
-      // If can't decode, consider expired for safety
       return true;
     }
   }

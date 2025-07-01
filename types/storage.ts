@@ -16,11 +16,15 @@ export interface StorageOptions {
 
 export interface CookieStorageOptions extends StorageOptions {
   httpOnly?: boolean;
+  waitForCookies?: number;
+  fallbackToBody?: boolean;
+  retryCount?: number;
+  debugMode?: boolean;
 }
 
 export interface StorageAdapterContext {
   req?: any;
   res?: any;
   environment?: 'client' | 'server';
-  cookies?: () => any; // Add cookies function for Next.js style
+  cookies?: () => any;
 }

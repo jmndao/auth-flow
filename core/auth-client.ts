@@ -14,6 +14,7 @@ import type {
 import { TokenManager } from './token-manager';
 import { RequestQueue } from './request-queue';
 import { ErrorHandler } from './error-handler';
+import { CookieManager } from './cookie-manager';
 import { validateConfig, validateLoginCredentials } from '../utils';
 
 export class AuthClient implements HttpMethod, AuthMethods {
@@ -23,11 +24,11 @@ export class AuthClient implements HttpMethod, AuthMethods {
   private readonly errorHandler: ErrorHandler;
   private readonly axiosInstance: AxiosInstance;
   private readonly context: AuthContext;
+  private readonly cookieManager?: CookieManager;
 
   constructor(config: AuthFlowConfig, context: AuthContext = {}) {
     validateConfig(config);
 
-    // Ensure required config properties exist
     if (!config.endpoints) {
       throw new Error('Endpoints configuration is required');
     }
@@ -35,7 +36,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
       throw new Error('Tokens configuration is required');
     }
 
-    // Create validated config
     this.config = {
       environment: 'auto',
       tokenSource: 'body',
@@ -43,19 +43,29 @@ export class AuthClient implements HttpMethod, AuthMethods {
       timeout: 10000,
       retry: { attempts: 3, delay: 1000 },
       ...config,
-      // Ensure these are definitely assigned after spread
       endpoints: config.endpoints,
       tokens: config.tokens,
     } as ValidatedAuthFlowConfig;
 
     this.context = context;
 
-    // Initialize components - now TypeScript knows these are defined
+    // Use cookie manager for cookie tokenSource
+    if (this.config.tokenSource === 'cookies') {
+      this.cookieManager = new CookieManager(this.context, {
+        ...(typeof this.config.storage === 'object' ? this.config.storage.options : {}),
+        waitForCookies: 500,
+        fallbackToBody: true,
+        retryCount: 3,
+        debugMode: false,
+      });
+    }
+
     this.tokenManager = new TokenManager(
       this.config.tokens,
       this.config.storage,
       this.context,
-      this.config.environment
+      this.config.environment,
+      this.cookieManager
     );
 
     this.requestQueue = new RequestQueue();
@@ -66,7 +76,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
       this.config.retry?.delay
     );
 
-    // Create axios instance
     this.axiosInstance = axios.create({
       baseURL: this.config.baseURL,
       timeout: this.config.timeout,
@@ -76,7 +85,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
   }
 
   private setupInterceptors(): void {
-    // Request interceptor - add auth headers
+    // Add token to requests
     this.axiosInstance.interceptors.request.use(
       async (config) => {
         const accessToken = await this.tokenManager.getAccessToken();
@@ -88,13 +97,12 @@ export class AuthClient implements HttpMethod, AuthMethods {
       (error) => Promise.reject(error)
     );
 
-    // Response interceptor - handle token refresh
+    // Handle token refresh
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       async (error) => {
         const authError = this.errorHandler.handleError(error);
 
-        // Check if token expired and we can refresh
         if (
           this.errorHandler.isTokenExpiredError(authError) &&
           !error.config._retry &&
@@ -110,7 +118,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
             return this.axiosInstance.request(error.config);
           } catch (refreshError) {
-            // If refresh fails, clear tokens
             await this.clearTokens();
             throw this.errorHandler.handleError(refreshError);
           }
@@ -121,7 +128,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
     );
   }
 
-  // Auth Methods
   async login<TUser = any, TCredentials = LoginCredentials>(
     credentials: TCredentials
   ): Promise<TUser> {
@@ -136,7 +142,11 @@ export class AuthClient implements HttpMethod, AuthMethods {
       const tokens = await this.extractTokens(response);
       await this.tokenManager.setTokens(tokens);
 
-      // Call token refresh callback if provided
+      // Store tokens in cookie manager for fallback
+      if (this.cookieManager) {
+        this.cookieManager.setFallbackTokens(tokens);
+      }
+
       if (this.config.onTokenRefresh) {
         this.config.onTokenRefresh(tokens);
       }
@@ -149,12 +159,10 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
   async logout(): Promise<void> {
     try {
-      // Call logout endpoint if configured
       if (this.config.endpoints.logout) {
         try {
           await this.axiosInstance.post(this.config.endpoints.logout);
         } catch (error) {
-          // Log but don't throw - still clear local tokens
           console.warn('Logout endpoint failed:', error);
         }
       }
@@ -169,7 +177,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
     }
   }
 
-  // Synchronous auth check
   isAuthenticated(): boolean {
     return this.tokenManager.hasTokensSync();
   }
@@ -184,6 +191,11 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
   async setTokens(tokens: TokenPair): Promise<void> {
     await this.tokenManager.setTokens(tokens);
+
+    // Store in cookie manager for fallback
+    if (this.cookieManager) {
+      this.cookieManager.setFallbackTokens(tokens);
+    }
   }
 
   async clearTokens(): Promise<void> {
@@ -191,7 +203,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
     this.requestQueue.clearQueue();
   }
 
-  // HTTP Methods
+  // HTTP methods
   async get<T = any>(url: string, config?: RequestConfig): Promise<LoginResponse<T>> {
     return this.request<T>('get', url, undefined, config);
   }
@@ -264,10 +276,15 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
       const newTokens: TokenPair = {
         accessToken: refreshData.accessToken,
-        refreshToken: refreshData.refreshToken || refreshToken, // Use new or keep existing
+        refreshToken: refreshData.refreshToken || refreshToken,
       };
 
       await this.tokenManager.setTokens(newTokens);
+
+      // Update fallback tokens
+      if (this.cookieManager) {
+        this.cookieManager.setFallbackTokens(newTokens);
+      }
 
       if (this.config.onTokenRefresh) {
         this.config.onTokenRefresh(newTokens);
@@ -300,8 +317,8 @@ export class AuthClient implements HttpMethod, AuthMethods {
   }
 
   private async extractTokensFromCookies(_response: AxiosResponse): Promise<TokenPair> {
-    // Allow cookies to be set first
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Allow time for cookies to be set
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     const tokens = await this.tokenManager.getTokens();
     if (!tokens) {

@@ -23,6 +23,11 @@ export interface StorageConfig {
     maxAge?: number;
     domain?: string;
     path?: string;
+    httpOnly?: boolean;
+    waitForCookies?: number;
+    fallbackToBody?: boolean;
+    retryCount?: number;
+    debugMode?: boolean;
   };
 }
 

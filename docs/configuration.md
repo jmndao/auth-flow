@@ -4,150 +4,165 @@
 
 ### Minimal Configuration
 
-The simplest way to get started:
-
 ```typescript
 import { createAuthFlow } from '@jmndao/auth-flow';
 
-// Just pass your API base URL
+// Just pass your API URL - uses smart defaults
 const auth = createAuthFlow('https://api.example.com');
 ```
 
-This uses smart defaults:
-
-- **Endpoints**: `/api/auth/login`, `/api/auth/refresh`, `/api/auth/logout`
-- **Tokens**: `accessToken`, `refreshToken`
-- **Storage**: Auto-selected based on environment
-- **Environment**: Auto-detected
-
-### Basic Configuration
-
-Customize the essentials:
+### Cookie-Based Authentication
 
 ```typescript
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  endpoints: {
-    login: '/auth/signin',
-    refresh: '/auth/refresh-token',
-  },
-  tokens: {
-    access: 'access_token',
-    refresh: 'refresh_token',
+  tokenSource: 'cookies',
+  storage: {
+    type: 'cookies',
+    options: {
+      waitForCookies: 500, // Wait for cookie propagation
+      fallbackToBody: true, // Use response as fallback
+      retryCount: 3, // Retry attempts
+      secure: true,
+      sameSite: 'lax',
+    },
   },
 });
 ```
 
+### Single Token Authentication
+
+```typescript
+import { createSingleTokenAuth } from '@jmndao/auth-flow';
+
+const auth = createSingleTokenAuth({
+  baseURL: 'https://api.example.com',
+  token: { access: 'accessToken' },
+  endpoints: { login: 'auth/login' },
+  sessionManagement: {
+    renewBeforeExpiry: 300, // Renew 5 min before expiry
+    persistCredentials: true, // Enable auto-renewal
+  },
+});
+```
+
+## Default Configuration
+
+AuthFlow provides smart defaults requiring minimal setup:
+
+```typescript
+// Default endpoints
+{
+  login: '/api/auth/login',
+  refresh: '/api/auth/refresh',
+  logout: '/api/auth/logout'
+}
+
+// Default token names
+{
+  access: 'accessToken',
+  refresh: 'refreshToken'
+}
+
+// Default settings
+{
+  tokenSource: 'body',        // Extract from response body
+  storage: 'auto',           // Auto-select best storage
+  environment: 'auto',       // Auto-detect client/server
+  timeout: 10000,           // 10 second timeout
+  retry: { attempts: 3, delay: 1000 }
+}
+```
+
 ## Complete Configuration Options
+
+### AuthFlowConfig Interface
 
 ```typescript
 interface AuthFlowConfig {
-  // Optional: API endpoints (smart defaults provided)
+  // API Configuration
+  baseURL?: string;
+  timeout?: number; // Request timeout (ms)
+
+  // Endpoints (optional - defaults provided)
   endpoints?: {
     login?: string; // Default: '/api/auth/login'
     refresh?: string; // Default: '/api/auth/refresh'
     logout?: string; // Default: '/api/auth/logout'
   };
 
-  // Optional: Token field names (smart defaults provided)
+  // Token Configuration (optional - defaults provided)
   tokens?: {
     access?: string; // Default: 'accessToken'
     refresh?: string; // Default: 'refreshToken'
   };
 
-  // Optional: General settings
-  baseURL?: string; // Base URL for all requests
-  timeout?: number; // Request timeout in milliseconds (default: 10000)
-  environment?: Environment; // 'client' | 'server' | 'auto' (default: 'auto')
+  // Token Source
+  tokenSource?: 'body' | 'cookies'; // Where to extract tokens from
 
-  // Optional: Token source configuration
-  tokenSource?: TokenSource; // 'body' | 'cookies' (default: 'body')
+  // Storage Configuration
+  storage?: StorageType | StorageConfig;
 
-  // Optional: Storage configuration
-  storage?: StorageType | StorageConfig; // Default: 'auto'
+  // Environment
+  environment?: 'client' | 'server' | 'auto';
 
-  // Optional: Retry configuration
+  // Retry Configuration
   retry?: {
-    attempts?: number; // Number of retry attempts (default: 3)
-    delay?: number; // Delay between retries in ms (default: 1000)
+    attempts?: number; // Retry attempts
+    delay?: number; // Delay between retries (ms)
   };
 
-  // Optional: Event callbacks
+  // Event Callbacks
   onTokenRefresh?: (tokens: TokenPair) => void;
   onAuthError?: (error: AuthError) => void;
   onLogout?: () => void;
 }
 ```
 
-## Default Values
-
-AuthFlow provides sensible defaults so you need minimal configuration:
-
-### Default Endpoints
+### StorageConfig Interface
 
 ```typescript
-{
-  login: '/api/auth/login',
-  refresh: '/api/auth/refresh',
-  logout: '/api/auth/logout'
+interface StorageConfig {
+  type?: 'localStorage' | 'cookies' | 'memory' | 'auto';
+  options?: {
+    // Standard cookie options
+    secure?: boolean; // Require HTTPS
+    sameSite?: 'strict' | 'lax' | 'none';
+    maxAge?: number; // Cookie expiry (seconds)
+    domain?: string; // Cookie domain
+    path?: string; // Cookie path
+    httpOnly?: boolean; // Server-side only
+
+    // Cookie timing fixes (v1.2.x)
+    waitForCookies?: number; // Wait time for propagation (ms)
+    fallbackToBody?: boolean; // Use response body as fallback
+    retryCount?: number; // Number of retry attempts
+    debugMode?: boolean; // Enable detailed logging
+  };
 }
 ```
 
-### Default Token Names
+## Storage Options
+
+### Auto Storage (Recommended)
 
 ```typescript
-{
-  access: 'accessToken',
-  refresh: 'refreshToken'
-}
-```
-
-### Other Defaults
-
-```typescript
-{
-  environment: 'auto',        // Auto-detect client/server
-  tokenSource: 'body',        // Extract tokens from response body
-  storage: 'auto',           // Auto-select best storage
-  timeout: 10000,            // 10 second timeout
-  retry: {
-    attempts: 3,             // 3 retry attempts
-    delay: 1000             // 1 second base delay
-  }
-}
-```
-
-## Storage Configuration
-
-### Simple Storage Types
-
-```typescript
-// Use browser localStorage
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  storage: 'localStorage',
-});
-
-// Use HTTP cookies
-const auth = createAuthFlow({
-  baseURL: 'https://api.example.com',
-  storage: 'cookies',
-});
-
-// Use memory storage (temporary)
-const auth = createAuthFlow({
-  baseURL: 'https://api.example.com',
-  storage: 'memory',
-});
-
-// Auto-select best storage for environment (default)
-const auth = createAuthFlow({
-  baseURL: 'https://api.example.com',
-  storage: 'auto',
+  storage: 'auto', // Automatically selects best option
 });
 ```
 
-### Advanced Storage Configuration
+### Local Storage
+
+```typescript
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  storage: 'localStorage', // Browser only
+});
+```
+
+### Cookie Storage
 
 ```typescript
 const auth = createAuthFlow({
@@ -155,18 +170,27 @@ const auth = createAuthFlow({
   storage: {
     type: 'cookies',
     options: {
-      secure: true, // Require HTTPS
-      sameSite: 'strict', // CSRF protection
-      maxAge: 86400, // 24 hours in seconds
-      domain: '.example.com', // Cookie domain
-      path: '/', // Cookie path
-      httpOnly: true, // Server-side only (server environments)
+      secure: true,
+      sameSite: 'strict',
+      maxAge: 86400, // 24 hours
+      waitForCookies: 500, // Wait for server to set cookies
+      fallbackToBody: true, // Use response body during delays
+      retryCount: 3, // Retry cookie reads
     },
   },
 });
 ```
 
-## Environment-Specific Configurations
+### Memory Storage
+
+```typescript
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  storage: 'memory', // Temporary, lost on page refresh
+});
+```
+
+## Environment-Specific Configuration
 
 ### Client-Side (Browser)
 
@@ -175,26 +199,28 @@ const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
   storage: 'localStorage',
   environment: 'client',
-  timeout: 10000,
 });
 ```
 
 ### Server-Side (Node.js/Next.js)
 
 ```typescript
-const auth = createAuthFlow({
-  baseURL: 'https://internal-api.example.com',
-  storage: {
-    type: 'cookies',
-    options: {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
+const auth = createAuthFlow(
+  {
+    baseURL: 'https://api.example.com',
+    storage: {
+      type: 'cookies',
+      options: {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'strict',
+      },
     },
+    environment: 'server',
+    tokenSource: 'cookies',
   },
-  environment: 'server',
-  tokenSource: 'cookies',
-});
+  { req, res }
+);
 ```
 
 ### Universal (SSR)
@@ -202,8 +228,8 @@ const auth = createAuthFlow({
 ```typescript
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  storage: 'auto', // Automatically selects appropriate storage
-  environment: 'auto', // Automatically detects environment
+  storage: 'auto', // Auto-selects appropriate storage
+  environment: 'auto', // Auto-detects environment
   tokenSource: 'body',
 });
 ```
@@ -211,8 +237,6 @@ const auth = createAuthFlow({
 ## Token Source Configuration
 
 ### Body-Based Tokens (Default)
-
-Tokens are extracted from the response body:
 
 ```typescript
 const auth = createAuthFlow({
@@ -227,8 +251,6 @@ const auth = createAuthFlow({
 
 ### Cookie-Based Tokens
 
-Tokens are stored and retrieved from HTTP cookies:
-
 ```typescript
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
@@ -237,85 +259,150 @@ const auth = createAuthFlow({
     access: 'auth_token', // Cookie names
     refresh: 'refresh_token',
   },
-  storage: 'cookies',
-});
-```
-
-## Retry Configuration
-
-```typescript
-const auth = createAuthFlow({
-  baseURL: 'https://api.example.com',
-  retry: {
-    attempts: 3, // Number of retry attempts for failed requests
-    delay: 1000, // Base delay between retries (exponential backoff applied)
+  storage: {
+    type: 'cookies',
+    options: {
+      waitForCookies: 500, // Critical for cookie timing issues
+      fallbackToBody: true,
+      retryCount: 3,
+    },
   },
 });
 ```
 
-Retry behavior:
+## Cookie Timing Issue Solutions
 
-- Retries network errors and 5xx server errors
-- Does not retry authentication errors (401, 403)
-- Uses exponential backoff: delay \* 2^attempt
+### Problem: Cookie Propagation Delays
 
-## Event Callbacks
+When using `tokenSource: 'cookies'`, cookies may not be immediately available after login, causing authentication failures.
 
-### Token Refresh Callback
-
-Called when tokens are refreshed:
+### Solution: Enhanced Cookie Configuration
 
 ```typescript
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  onTokenRefresh: (tokens) => {
-    console.log('Tokens refreshed:', tokens);
-    // Store in external system, analytics, etc.
+  tokenSource: 'cookies',
+  storage: {
+    type: 'cookies',
+    options: {
+      waitForCookies: 500, // Wait 500ms for cookies to propagate
+      fallbackToBody: true, // Use login response body as fallback
+      retryCount: 3, // Retry cookie reads 3 times
+      debugMode: true, // Enable logging for troubleshooting
+    },
   },
 });
 ```
 
-### Authentication Error Callback
+### Troubleshooting Cookie Issues
 
-Called for authentication-related errors:
+```typescript
+import { diagnoseCookieIssues } from '@jmndao/auth-flow';
+
+// Run diagnostic to identify problems
+await diagnoseCookieIssues(
+  { username: 'test', password: 'test' },
+  {
+    baseURL: 'https://api.example.com',
+    tokenSource: 'cookies',
+    storage: { type: 'cookies', options: { debugMode: true } },
+  }
+);
+```
+
+## Single Token Configuration
+
+### JWT-Only Backend
+
+```typescript
+import { createSingleTokenAuth, singleTokenPresets } from '@jmndao/auth-flow';
+
+// Using preset
+const config = singleTokenPresets.jwtOnly('https://api.example.com');
+const auth = createSingleTokenAuth(config);
+
+// Custom configuration
+const auth = createSingleTokenAuth({
+  baseURL: 'https://api.example.com',
+  token: { access: 'accessToken' },
+  endpoints: { login: 'auth/login' },
+  sessionManagement: {
+    renewBeforeExpiry: 300, // Renew 5 minutes before expiry
+    persistCredentials: true, // Store credentials for auto-renewal
+    checkInterval: 60000, // Check token expiry every minute
+  },
+});
+```
+
+### Session-Based Authentication
+
+```typescript
+const auth = createSingleTokenAuth({
+  baseURL: 'https://api.example.com',
+  token: { access: 'sessionToken' },
+  endpoints: {
+    login: 'auth/login',
+    logout: 'auth/logout',
+  },
+  sessionManagement: {
+    onSessionExpired: () => {
+      window.location.href = '/login';
+    },
+  },
+});
+```
+
+## Error Handling Configuration
+
+### Global Error Handlers
 
 ```typescript
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
   onAuthError: (error) => {
-    if (error.status === 401) {
-      // Redirect to login
-      window.location.href = '/login';
+    switch (error.status) {
+      case 401:
+        window.location.href = '/login';
+        break;
+      case 403:
+        showNotification('Access denied');
+        break;
+      case 429:
+        showNotification('Rate limited');
+        break;
     }
+  },
+  onTokenRefresh: (tokens) => {
+    console.log('Tokens refreshed successfully');
+    analytics.track('token_refresh');
+  },
+  onLogout: () => {
+    clearUserData();
+    showNotification('Logged out successfully');
   },
 });
 ```
 
-### Logout Callback
-
-Called when user logs out:
+### Retry Configuration
 
 ```typescript
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  onLogout: () => {
-    // Clear user data, redirect, analytics, etc.
-    clearUserData();
-    router.push('/login');
+  retry: {
+    attempts: 3, // Retry failed requests 3 times
+    delay: 1000, // Base delay of 1 second (exponential backoff)
   },
 });
 ```
 
-## Framework-Specific Examples
+## Framework-Specific Configurations
 
-### React Application
+### React Configuration
 
 ```typescript
 // src/auth.ts
-import { createAuthFlow } from '@jmndao/auth-flow';
-
 export const auth = createAuthFlow({
-  baseURL: process.env.REACT_APP_API_URL || 'https://api.example.com',
+  baseURL: process.env.REACT_APP_API_URL,
   onAuthError: (error) => {
     if (error.status === 401) {
       window.location.href = '/login';
@@ -324,177 +411,159 @@ export const auth = createAuthFlow({
 });
 ```
 
-### Next.js API Route
+### Next.js Configuration
 
 ```typescript
-// pages/api/protected.ts
-import { createAuthFlow } from '@jmndao/auth-flow';
-import type { NextApiRequest, NextApiResponse } from 'next';
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const auth = createAuthFlow(
+// lib/auth.ts
+export const createAuthForContext = (context) =>
+  createAuthFlow(
     {
-      baseURL: process.env.API_BASE_URL || 'https://api.example.com',
+      baseURL: process.env.API_BASE_URL,
       storage: 'cookies',
       environment: 'server',
     },
-    { req, res }
+    context
   );
 
-  try {
-    const data = await auth.get('/protected-data');
-    res.json(data.data);
-  } catch (error) {
-    res.status(401).json({ error: 'Unauthorized' });
-  }
-}
+// Usage in API routes
+const auth = createAuthForContext({ req, res });
 ```
 
-### Express.js Middleware
+### Express.js Configuration
 
 ```typescript
 // middleware/auth.ts
-import { createAuthFlow } from '@jmndao/auth-flow';
-import { Request, Response, NextFunction } from 'express';
-
-export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
-  const auth = createAuthFlow(
-    {
-      baseURL: process.env.API_BASE_URL || 'https://api.example.com',
-      storage: 'cookies',
-      environment: 'server',
+export const authConfig = {
+  baseURL: process.env.API_BASE_URL,
+  storage: {
+    type: 'cookies',
+    options: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
     },
-    { req, res }
-  );
-
-  try {
-    const isAuthenticated = await auth.hasValidTokens();
-    if (!isAuthenticated) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    (req as any).auth = auth;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: 'Authentication failed' });
-  }
+  },
+  environment: 'server',
 };
 ```
 
-## Configuration Examples by Use Case
+## Configuration Helpers
 
-### Simple SPA (Single Page Application)
-
-```typescript
-const auth = createAuthFlow('https://api.example.com');
-```
-
-### Complex Enterprise Application
+### Cookie Configuration Helper
 
 ```typescript
-const auth = createAuthFlow({
-  baseURL: 'https://enterprise-api.example.com',
-  endpoints: {
-    login: '/oauth/token',
-    refresh: '/oauth/refresh',
-    logout: '/oauth/revoke',
-  },
-  tokens: {
-    access: 'access_token',
-    refresh: 'refresh_token',
-  },
-  storage: {
-    type: 'localStorage',
-    options: {
-      secure: true,
-    },
-  },
-  timeout: 30000,
-  retry: {
-    attempts: 5,
-    delay: 2000,
-  },
-  onTokenRefresh: (tokens) => {
-    analytics.track('token_refresh', { userId: getCurrentUserId() });
-  },
-  onAuthError: (error) => {
-    if (error.status === 401) {
-      showModal('Session expired. Please login again.');
-      redirectToLogin();
-    }
+import { createCookieConfig } from '@jmndao/auth-flow';
+
+const config = createCookieConfig('https://api.example.com', {
+  tokenNames: { access: 'auth_token', refresh: 'refresh_token' },
+  cookieOptions: {
+    waitForCookies: 1000,
+    retryCount: 5,
+    debugMode: true,
   },
 });
+
+const auth = createAuthFlow(config);
 ```
 
-### Development vs Production
+### Environment-Based Configuration
 
 ```typescript
-const auth = createAuthFlow({
-  baseURL:
-    process.env.NODE_ENV === 'production' ? 'https://api.example.com' : 'http://localhost:3001',
-  storage:
-    process.env.NODE_ENV === 'production'
-      ? { type: 'cookies', options: { secure: true, sameSite: 'strict' } }
+const getAuthConfig = () => {
+  const isDev = process.env.NODE_ENV === 'development';
+  const isProd = process.env.NODE_ENV === 'production';
+
+  return createAuthFlow({
+    baseURL: isDev ? 'http://localhost:3001' : 'https://api.example.com',
+
+    storage: isProd
+      ? {
+          type: 'cookies',
+          options: { secure: true, sameSite: 'strict' },
+        }
       : 'localStorage',
-  timeout: process.env.NODE_ENV === 'production' ? 10000 : 30000,
-});
+
+    timeout: isDev ? 30000 : 10000,
+
+    retry: {
+      attempts: isProd ? 3 : 1,
+      delay: isProd ? 1000 : 500,
+    },
+  });
+};
+
+export const auth = getAuthConfig();
 ```
 
 ## Validation Rules
 
-The configuration is validated on creation with the following rules:
+Configuration is automatically validated with these rules:
 
-- `endpoints.login` and `endpoints.refresh` are required (or defaults are used)
-- `tokens.access` and `tokens.refresh` are required (or defaults are used)
-- `timeout` must be a positive number
+- `endpoints.login` and `endpoints.refresh` are required (or defaults used)
+- `tokens.access` and `tokens.refresh` are required (or defaults used)
+- `timeout` must be positive number
 - `retry.attempts` must be non-negative
 - `retry.delay` must be non-negative
 - URLs must be valid relative or absolute URLs
-- Storage options must be valid for the selected storage type
+- Storage options must be valid for selected storage type
 
 ## Migration Guide
 
-### Upgrading to v1.1.x
+### From v1.1.x to v1.2.x
 
-No breaking changes. Your existing configuration will continue to work. New features available:
+**No breaking changes.** Existing configurations continue to work.
 
-1. **String Configuration**: Pass just a baseURL string for quick setup
-2. **Smart Defaults**: Minimal configuration required
-3. **Better Error Messages**: Shows your configured token names in errors
-4. **Improved Types**: Better TypeScript support
-
-### Before (v1.x)
+#### Before (v1.1.x)
 
 ```typescript
 const auth = createAuthFlow({
-  endpoints: {
-    login: '/api/auth/login',
-    refresh: '/api/auth/refresh',
-  },
-  tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
   baseURL: 'https://api.example.com',
+  tokenSource: 'cookies',
+  storage: 'cookies',
 });
 ```
 
-### After (v1.1.x)
+#### After (v1.2.x) - With Cookie Timing Fixes
 
 ```typescript
-// Still works exactly the same
 const auth = createAuthFlow({
-  endpoints: {
-    login: '/api/auth/login',
-    refresh: '/api/auth/refresh',
-  },
-  tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
   baseURL: 'https://api.example.com',
+  tokenSource: 'cookies',
+  storage: {
+    type: 'cookies',
+    options: {
+      waitForCookies: 500,
+      fallbackToBody: true,
+      retryCount: 3,
+    },
+  },
 });
+```
 
-// Or use the new simplified syntax
-const auth = createAuthFlow('https://api.example.com');
+### New Features Available
+
+1. **Automatic Cookie Timing Fixes**: Resolves cookie propagation delays
+2. **Single Token Support**: For APIs without refresh tokens
+3. **Enhanced Storage Options**: More granular cookie configuration
+4. **Debug Mode**: Detailed logging for troubleshooting
+
+### Recommended Upgrades
+
+If experiencing cookie timing issues, update your configuration:
+
+```typescript
+// Add timing fixes to existing cookie configuration
+const auth = createAuthFlow({
+  ...existingConfig,
+  storage: {
+    type: 'cookies',
+    options: {
+      ...existingConfig.storage?.options,
+      waitForCookies: 500,
+      fallbackToBody: true,
+      retryCount: 3,
+      debugMode: false, // Set to true for troubleshooting
+    },
+  },
+});
 ```

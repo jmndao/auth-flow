@@ -1,100 +1,126 @@
-import { AuthClient } from './core/auth-client';
 import type { AuthFlowConfig, AuthContext } from './types';
+import { AuthClient } from './core/auth-client';
+import { SingleTokenAuthClient } from './core/single-token-auth';
 
-/**
- * Creates AuthFlow instance
- * @param config - Config object or baseURL string
- * @param context - Optional server context (auto-detected)
- */
-export function createAuthFlow(config: AuthFlowConfig | string, context?: AuthContext) {
-  // Allow passing just baseURL for quick setup
-  const normalizedConfig: AuthFlowConfig =
-    typeof config === 'string'
-      ? {
-          baseURL: config,
-          endpoints: getDefaultEndpoints(),
-          tokens: getDefaultTokens(),
-        }
-      : {
-          // Smart defaults - config overrides these
-          environment: 'auto',
-          tokenSource: 'body',
-          storage: 'auto',
-          timeout: 10000,
-          retry: { attempts: 3, delay: 1000 },
-          ...config, // Config comes after defaults
-          // Ensure endpoints and tokens have defaults if not provided
-          endpoints: config.endpoints || getDefaultEndpoints(),
-          tokens: config.tokens || getDefaultTokens(),
-        };
-
-  return new AuthClient(normalizedConfig, context);
+// Main factory function - works exactly like before
+export function createAuthFlow(config: AuthFlowConfig, context?: AuthContext) {
+  return new AuthClient(config, context);
 }
 
-// Default endpoints
-function getDefaultEndpoints() {
+// New single token auth for backends without refresh tokens
+export function createSingleTokenAuth(config: {
+  baseURL: string;
+  token: { access: string };
+  endpoints: {
+    login: string;
+    logout?: string;
+  };
+  sessionManagement?: {
+    checkInterval?: number;
+    renewBeforeExpiry?: number;
+    persistCredentials?: boolean;
+    onSessionExpired?: () => void;
+  };
+  timeout?: number;
+  onTokenRefresh?: (token: string) => void;
+  onAuthError?: (error: any) => void;
+  onLogout?: () => void;
+}) {
+  return new SingleTokenAuthClient(config);
+}
+
+// Preset configurations for common scenarios
+export const singleTokenPresets = {
+  jwtOnly: (baseURL: string, tokenField: string = 'accessToken') => ({
+    baseURL,
+    token: { access: tokenField },
+    endpoints: { login: 'auth/login' },
+    sessionManagement: { persistCredentials: true, renewBeforeExpiry: 300 },
+  }),
+
+  sessionBased: (baseURL: string) => ({
+    baseURL,
+    token: { access: 'token' },
+    endpoints: { login: 'auth/login', logout: 'auth/logout' },
+    sessionManagement: { checkInterval: 60000, renewBeforeExpiry: 300 },
+  }),
+
+  apiKey: (baseURL: string, keyField: string = 'apiKey') => ({
+    baseURL,
+    token: { access: keyField },
+    endpoints: { login: 'auth/login' },
+    sessionManagement: { persistCredentials: true },
+  }),
+};
+
+// Configuration helpers
+export function createCookieConfig(
+  baseURL: string,
+  options?: {
+    tokenNames?: { access: string; refresh: string };
+    cookieOptions?: {
+      waitForCookies?: number;
+      fallbackToBody?: boolean;
+      retryCount?: number;
+      debugMode?: boolean;
+    };
+  }
+): AuthFlowConfig {
   return {
-    login: '/api/auth/login',
-    refresh: '/api/auth/refresh',
-    logout: '/api/auth/logout',
+    baseURL,
+    tokenSource: 'cookies',
+    storage: {
+      type: 'cookies',
+      options: {
+        secure: true,
+        sameSite: 'lax',
+        path: '/',
+        ...options?.cookieOptions,
+      },
+    },
+    tokens: options?.tokenNames || { access: 'accessToken', refresh: 'refreshToken' },
+    endpoints: {
+      login: 'auth/login',
+      refresh: 'auth/refresh',
+      logout: 'auth/logout',
+    },
   };
 }
 
-// Default token names
-function getDefaultTokens() {
-  return {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  };
+// Diagnostic utility
+export async function diagnoseCookieIssues(credentials: any, config: AuthFlowConfig) {
+  console.log('Cookie Diagnostic Check');
+  console.log('======================');
+
+  const auth = createAuthFlow({
+    ...config,
+    storage: {
+      type: 'cookies',
+      options: { debugMode: true },
+    },
+  });
+
+  try {
+    console.log('Testing login...');
+    await auth.login(credentials);
+
+    console.log('Checking token retrieval...');
+    const tokens = await auth.getTokens();
+    console.log('Tokens found:', !!tokens);
+
+    if (tokens) {
+      console.log('Access token length:', tokens.accessToken.length);
+      console.log('Refresh token length:', tokens.refreshToken.length);
+    }
+
+    console.log('Authentication status:', auth.isAuthenticated());
+  } catch (error) {
+    console.error('Diagnostic failed:', error);
+  }
 }
 
-// Export types
-export type {
-  AuthFlowConfig,
-  AuthContext,
-  TokenPair,
-  LoginCredentials,
-  LoginResponse,
-  RefreshTokenResponse,
-  AuthError,
-  RequestConfig,
-  Environment,
-  TokenSource,
-  StorageType,
-  StorageConfig,
-  TokenConfig,
-  EndpointsConfig,
-  RetryConfig,
-  HttpMethod,
-  AuthMethods,
-  StorageAdapter,
-  StorageOptions,
-  CookieStorageOptions,
-  StorageAdapterContext,
-  QueuedRequest,
-} from './types';
-
-// Export core classes
-export { AuthClient } from './core/auth-client';
-export { TokenManager } from './core/token-manager';
-export { RequestQueue } from './core/request-queue';
-export { ErrorHandler } from './core/error-handler';
-
-// Export adapters
-export { LocalStorageAdapter, CookieStorageAdapter, MemoryStorageAdapter } from './adapters';
-
-// Export utilities
-export {
-  detectEnvironment,
-  isServerEnvironment,
-  isClientEnvironment,
-  getOptimalStorageType,
-  supportsLocalStorage,
-  supportsCookies,
-  validateConfig,
-  ValidationError,
-  validateTokenPair,
-  validateLoginCredentials,
-} from './utils';
-
-export default createAuthFlow;
+// Export everything from types and core modules
+export * from './types';
+export * from './core/auth-client';
+export * from './core/single-token-auth';
+export * from './adapters';

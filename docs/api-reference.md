@@ -1,25 +1,63 @@
 # API Reference
 
-## AuthClient Class
+## Factory Functions
 
-The main authentication client that handles all authentication operations, HTTP requests, and token management.
+### createAuthFlow(config, context?)
 
-### Constructor
+Creates a new AuthClient instance with cookie timing fixes and automatic token refresh.
 
 ```typescript
-new AuthClient(config: AuthFlowConfig, context?: AuthContext)
+function createAuthFlow(config: AuthFlowConfig | string, context?: AuthContext): AuthClient;
 ```
 
 **Parameters:**
 
-- `config`: Configuration object for the auth client
-- `context`: Optional context object for server-side usage (req/res objects)
+- `config`: Configuration object or base URL string
+- `context`: Optional server context (req/res objects)
+
+**Example:**
+
+```typescript
+// Simple setup
+const auth = createAuthFlow('https://api.example.com');
+
+// Full configuration
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  tokenSource: 'cookies',
+  storage: { type: 'cookies', options: { debugMode: true } },
+});
+
+// Server-side with context
+const auth = createAuthFlow(config, { req, res });
+```
+
+### createSingleTokenAuth(config)
+
+Creates a SingleTokenAuthClient for APIs that only provide access tokens.
+
+```typescript
+function createSingleTokenAuth(config: SingleTokenConfig): SingleTokenAuthClient;
+```
+
+**Example:**
+
+```typescript
+const auth = createSingleTokenAuth({
+  baseURL: 'https://api.example.com',
+  token: { access: 'accessToken' },
+  endpoints: { login: 'auth/login' },
+  sessionManagement: { renewBeforeExpiry: 300 },
+});
+```
+
+## AuthClient
+
+Main authentication client that handles token management and HTTP requests.
 
 ### Authentication Methods
 
 #### login<TUser, TCredentials>(credentials)
-
-Authenticates a user with the provided credentials.
 
 ```typescript
 async login<TUser = any, TCredentials = LoginCredentials>(
@@ -27,58 +65,35 @@ async login<TUser = any, TCredentials = LoginCredentials>(
 ): Promise<TUser>
 ```
 
-**Parameters:**
-
-- `credentials`: User login credentials (username/password, etc.)
-
-**Returns:** Promise resolving to user data
-
-**Example:**
-
-```typescript
-const user = await authClient.login({
-  username: 'user@example.com',
-  password: 'password',
-});
-```
+Authenticates user and stores tokens with cookie timing retry logic.
 
 #### logout()
-
-Logs out the current user, clears tokens, and optionally calls the logout endpoint.
 
 ```typescript
 async logout(): Promise<void>
 ```
 
-**Example:**
-
-```typescript
-await authClient.logout();
-```
+Clears tokens and calls logout endpoint if configured.
 
 #### isAuthenticated()
-
-Synchronously checks if the user is authenticated based on token presence.
 
 ```typescript
 isAuthenticated(): boolean
 ```
 
-**Returns:** Boolean indicating authentication status
+Synchronous check for token presence.
 
 #### hasValidTokens()
-
-Asynchronously validates stored tokens.
 
 ```typescript
 async hasValidTokens(): Promise<boolean>
 ```
 
-**Returns:** Promise resolving to boolean indicating token validity
+Asynchronous validation of stored tokens.
 
 ### HTTP Methods
 
-All HTTP methods return a standardized response format:
+All HTTP methods return a `LoginResponse<T>` with automatic token refresh:
 
 ```typescript
 interface LoginResponse<T> {
@@ -91,298 +106,301 @@ interface LoginResponse<T> {
 
 #### get<T>(url, config?)
 
-Performs a GET request.
-
 ```typescript
-async get<T = any>(
-  url: string,
-  config?: RequestConfig
-): Promise<LoginResponse<T>>
+async get<T = any>(url: string, config?: RequestConfig): Promise<LoginResponse<T>>
 ```
 
 #### post<T>(url, data?, config?)
 
-Performs a POST request.
-
 ```typescript
-async post<T = any>(
-  url: string,
-  data?: any,
-  config?: RequestConfig
-): Promise<LoginResponse<T>>
+async post<T = any>(url: string, data?: any, config?: RequestConfig): Promise<LoginResponse<T>>
 ```
 
 #### put<T>(url, data?, config?)
 
-Performs a PUT request.
-
 ```typescript
-async put<T = any>(
-  url: string,
-  data?: any,
-  config?: RequestConfig
-): Promise<LoginResponse<T>>
+async put<T = any>(url: string, data?: any, config?: RequestConfig): Promise<LoginResponse<T>>
 ```
 
 #### patch<T>(url, data?, config?)
 
-Performs a PATCH request.
-
 ```typescript
-async patch<T = any>(
-  url: string,
-  data?: any,
-  config?: RequestConfig
-): Promise<LoginResponse<T>>
+async patch<T = any>(url: string, data?: any, config?: RequestConfig): Promise<LoginResponse<T>>
 ```
 
 #### delete<T>(url, config?)
 
-Performs a DELETE request.
-
 ```typescript
-async delete<T = any>(
-  url: string,
-  config?: RequestConfig
-): Promise<LoginResponse<T>>
-```
-
-#### head<T>(url, config?)
-
-Performs a HEAD request.
-
-```typescript
-async head<T = any>(
-  url: string,
-  config?: RequestConfig
-): Promise<LoginResponse<T>>
-```
-
-#### options<T>(url, config?)
-
-Performs an OPTIONS request.
-
-```typescript
-async options<T = any>(
-  url: string,
-  config?: RequestConfig
-): Promise<LoginResponse<T>>
+async delete<T = any>(url: string, config?: RequestConfig): Promise<LoginResponse<T>>
 ```
 
 ### Token Management
 
 #### getTokens()
 
-Retrieves the current token pair from storage.
-
 ```typescript
 async getTokens(): Promise<TokenPair | null>
 ```
 
-**Returns:** Promise resolving to token pair or null if no tokens exist
+Retrieves stored token pair.
 
 #### setTokens(tokens)
-
-Stores a token pair in the configured storage.
 
 ```typescript
 async setTokens(tokens: TokenPair): Promise<void>
 ```
 
-**Parameters:**
-
-- `tokens`: Token pair containing access and refresh tokens
+Stores token pair with fallback support.
 
 #### clearTokens()
-
-Removes all tokens from storage.
 
 ```typescript
 async clearTokens(): Promise<void>
 ```
 
-## TokenManager Class
+Removes all stored tokens.
 
-Handles token storage, retrieval, and validation operations.
+## SingleTokenAuthClient
 
-### Constructor
-
-```typescript
-new TokenManager(
-  tokenConfig: TokenConfig,
-  storage: StorageType | StorageConfig = 'auto',
-  context: AuthContext = {},
-  environment: Environment = 'auto'
-)
-```
+Authentication client for single token (access-only) APIs.
 
 ### Methods
 
-#### isTokenExpired(token)
+Has the same interface as AuthClient but optimized for single token workflows:
 
-Checks if a JWT token is expired.
+- Automatic JWT expiry detection
+- Session management with credential persistence
+- Background token renewal
 
 ```typescript
-isTokenExpired(token: string): boolean
+// Usage is identical to AuthClient
+const user = await auth.login(credentials);
+const data = await auth.get('/protected');
 ```
 
-**Parameters:**
+## Configuration Types
 
-- `token`: JWT token string
-
-**Returns:** Boolean indicating if token is expired
-
-#### isAccessTokenExpired()
-
-Checks if the stored access token is expired.
+### AuthFlowConfig
 
 ```typescript
-async isAccessTokenExpired(): Promise<boolean>
+interface AuthFlowConfig {
+  baseURL?: string;
+  endpoints?: {
+    login?: string; // Default: '/api/auth/login'
+    refresh?: string; // Default: '/api/auth/refresh'
+    logout?: string; // Default: '/api/auth/logout'
+  };
+  tokens?: {
+    access?: string; // Default: 'accessToken'
+    refresh?: string; // Default: 'refreshToken'
+  };
+  tokenSource?: 'body' | 'cookies';
+  storage?: StorageType | StorageConfig;
+  environment?: 'client' | 'server' | 'auto';
+  timeout?: number;
+  retry?: {
+    attempts?: number;
+    delay?: number;
+  };
+  onTokenRefresh?: (tokens: TokenPair) => void;
+  onAuthError?: (error: AuthError) => void;
+  onLogout?: () => void;
+}
 ```
 
-**Returns:** Promise resolving to boolean
-
-## ErrorHandler Class
-
-Manages error handling, retry logic, and error normalization.
-
-### Constructor
+### StorageConfig
 
 ```typescript
-new ErrorHandler(
-  onAuthError?: (error: AuthError) => void,
-  retryAttempts: number = 3,
-  retryDelay: number = 1000
-)
+interface StorageConfig {
+  type?: 'localStorage' | 'cookies' | 'memory' | 'auto';
+  options?: {
+    // Cookie options
+    secure?: boolean;
+    sameSite?: 'strict' | 'lax' | 'none';
+    maxAge?: number;
+    domain?: string;
+    path?: string;
+    httpOnly?: boolean;
+
+    // Cookie timing fixes
+    waitForCookies?: number; // Wait time for cookie propagation
+    fallbackToBody?: boolean; // Use response body as fallback
+    retryCount?: number; // Number of retry attempts
+    debugMode?: boolean; // Enable detailed logging
+  };
+}
 ```
 
-### Methods
-
-#### handleError(error)
-
-Normalizes and processes errors.
+### SingleTokenConfig
 
 ```typescript
-handleError(error: any): AuthError
+interface SingleTokenConfig {
+  baseURL: string;
+  token: { access: string };
+  endpoints: {
+    login: string;
+    logout?: string;
+  };
+  sessionManagement?: {
+    checkInterval?: number; // Session check interval (ms)
+    renewBeforeExpiry?: number; // Renew before expiry (seconds)
+    persistCredentials?: boolean; // Store credentials for auto-renewal
+    onSessionExpired?: () => void;
+  };
+  timeout?: number;
+  onTokenRefresh?: (token: string) => void;
+  onAuthError?: (error: AuthError) => void;
+  onLogout?: () => void;
+}
 ```
 
-#### executeWithRetry<T>(operation, maxAttempts?)
-
-Executes an operation with retry logic.
+### AuthContext
 
 ```typescript
-async executeWithRetry<T>(
-  operation: () => Promise<T>,
-  maxAttempts: number = this.retryAttempts
-): Promise<T>
-```
-
-#### isAuthenticationError(error)
-
-Checks if an error is an authentication error.
-
-```typescript
-isAuthenticationError(error: AuthError): boolean
-```
-
-#### isTokenExpiredError(error)
-
-Checks if an error indicates token expiration.
-
-```typescript
-isTokenExpiredError(error: AuthError): boolean
-```
-
-## RequestQueue Class
-
-Manages request queuing during token refresh operations.
-
-### Constructor
-
-```typescript
-new RequestQueue();
-```
-
-### Methods
-
-#### executeWithRefresh<T>(refreshFunction, requestFunction)
-
-Executes a request with token refresh coordination.
-
-```typescript
-async executeWithRefresh<T>(
-  refreshFunction: () => Promise<void>,
-  requestFunction: () => Promise<T>
-): Promise<T>
-```
-
-#### clearQueue()
-
-Clears all pending requests in the queue.
-
-```typescript
-clearQueue(): void
-```
-
-## Storage Adapters
-
-### LocalStorageAdapter
-
-Browser localStorage implementation.
-
-```typescript
-new LocalStorageAdapter();
-```
-
-### CookieStorageAdapter
-
-HTTP cookie implementation for both client and server.
-
-```typescript
-new CookieStorageAdapter(
-  context?: StorageAdapterContext,
-  options?: CookieStorageOptions
-)
-```
-
-### MemoryStorageAdapter
-
-In-memory storage implementation.
-
-```typescript
-new MemoryStorageAdapter();
+interface AuthContext {
+  req?: any; // Request object (server-side)
+  res?: any; // Response object (server-side)
+  cookies?: () => any; // Next.js cookies function
+}
 ```
 
 ## Utility Functions
 
-### createAuthFlow(config, context?)
+### diagnoseCookieIssues(credentials, config)
 
-Factory function to create an AuthClient instance.
+Diagnostic utility for troubleshooting cookie timing issues:
 
 ```typescript
-function createAuthFlow(config: AuthFlowConfig, context?: AuthContext): AuthClient;
+async function diagnoseCookieIssues(credentials: any, config: AuthFlowConfig): Promise<void>;
 ```
 
-### detectEnvironment()
-
-Detects the current execution environment.
+**Example:**
 
 ```typescript
-function detectEnvironment(): Environment;
+await diagnoseCookieIssues(
+  { username: 'test', password: 'test' },
+  {
+    baseURL: 'https://api.example.com',
+    tokenSource: 'cookies',
+    storage: { type: 'cookies', options: { debugMode: true } },
+  }
+);
 ```
 
-### validateConfig(config)
+### Configuration Helpers
 
-Validates the AuthFlow configuration.
+#### createCookieConfig(baseURL, options?)
+
+Creates optimized cookie configuration:
 
 ```typescript
-function validateConfig(config: AuthFlowConfig): void;
+function createCookieConfig(
+  baseURL: string,
+  options?: {
+    tokenNames?: { access: string; refresh: string };
+    cookieOptions?: CookieOptions;
+  }
+): AuthFlowConfig;
 ```
 
-### validateTokenPair(tokens)
-
-Validates a token pair.
+#### Presets for Single Token Auth
 
 ```typescript
-function validateTokenPair(tokens: any): void;
+const singleTokenPresets = {
+  jwtOnly: (baseURL: string, tokenField?: string) => SingleTokenConfig;
+  sessionBased: (baseURL: string) => SingleTokenConfig;
+  apiKey: (baseURL: string, keyField?: string) => SingleTokenConfig;
+};
+```
+
+**Example:**
+
+```typescript
+const config = singleTokenPresets.jwtOnly('https://api.example.com');
+const auth = createSingleTokenAuth(config);
+```
+
+## Error Types
+
+### AuthError
+
+```typescript
+interface AuthError {
+  status: number; // HTTP status code
+  message: string; // Error message
+  code?: string; // Error code
+  originalError?: any; // Original error object
+}
+```
+
+### Common Error Codes
+
+- `TOKEN_EXPIRED`: Access token has expired
+- `REFRESH_TOKEN_EXPIRED`: Refresh token has expired
+- `NETWORK_ERROR`: Network connectivity issue
+- `VALIDATION_ERROR`: Configuration validation failed
+
+## Storage Adapters
+
+### Built-in Adapters
+
+- `LocalStorageAdapter`: Browser localStorage
+- `CookieStorageAdapter`: HTTP cookies (legacy)
+- `CookieManager`: Enhanced cookie adapter with timing fixes
+- `MemoryStorageAdapter`: In-memory storage
+
+### Custom Storage Adapter
+
+```typescript
+interface StorageAdapter {
+  get(key: string): Promise<string | null> | string | null;
+  set(key: string, value: string): Promise<void> | void;
+  remove(key: string): Promise<void> | void;
+  clear(): Promise<void> | void;
+}
+
+class CustomAdapter implements StorageAdapter {
+  async get(key: string): Promise<string | null> {
+    // Implementation
+  }
+
+  async set(key: string, value: string): Promise<void> {
+    // Implementation
+  }
+
+  // ... other methods
+}
+```
+
+## Migration Guide
+
+### From v1.1.x to v1.2.x
+
+No breaking changes. New features:
+
+1. **Cookie Timing Fixes**: Automatic retry and fallback for cookie issues
+2. **Single Token Support**: New `createSingleTokenAuth` for access-only APIs
+3. **Enhanced Storage Options**: New cookie management options
+
+### Upgrading Cookie Configuration
+
+```typescript
+// Old (v1.1.x) - may have timing issues
+const auth = createAuthFlow({
+  tokenSource: 'cookies',
+  storage: 'cookies',
+});
+
+// New (v1.2.x) - automatically handles timing issues
+const auth = createAuthFlow({
+  tokenSource: 'cookies',
+  storage: {
+    type: 'cookies',
+    options: {
+      waitForCookies: 500,
+      fallbackToBody: true,
+      retryCount: 3,
+    },
+  },
+});
 ```
