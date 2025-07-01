@@ -11,6 +11,7 @@ A universal authentication client for modern JavaScript applications that provid
 - **TypeScript Support**: Full TypeScript definitions included
 - **Retry Logic**: Configurable retry mechanism for failed requests
 - **Error Handling**: Comprehensive error handling with customizable callbacks
+- **Smart Defaults**: Minimal configuration required with sensible defaults
 
 ## Installation
 
@@ -20,10 +21,32 @@ npm install @jmndao/auth-flow
 
 ## Quick Start
 
+### Minimal Setup
+
 ```typescript
 import { createAuthFlow } from '@jmndao/auth-flow';
 
-const authClient = createAuthFlow({
+// Just pass your API base URL
+const auth = createAuthFlow('https://api.example.com');
+
+// Login
+const user = await auth.login({
+  username: 'user@example.com',
+  password: 'password',
+});
+
+// Make authenticated requests
+const data = await auth.get('/protected-resource');
+
+// Logout
+await auth.logout();
+```
+
+### With Configuration
+
+```typescript
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
   endpoints: {
     login: '/auth/login',
     refresh: '/auth/refresh',
@@ -33,38 +56,57 @@ const authClient = createAuthFlow({
     access: 'accessToken',
     refresh: 'refreshToken',
   },
-  baseURL: 'https://api.example.com',
   storage: 'localStorage',
 });
+```
 
-// Login
-const user = await authClient.login({
-  username: 'user@example.com',
-  password: 'password',
-});
+## Default Configuration
 
-// Make authenticated requests
-const data = await authClient.get('/protected-resource');
+AuthFlow provides smart defaults so you need minimal configuration:
 
-// Logout
-await authClient.logout();
+```typescript
+// Default endpoints (customizable)
+{
+  login: '/api/auth/login',
+  refresh: '/api/auth/refresh',
+  logout: '/api/auth/logout'
+}
+
+// Default token names (customizable)
+{
+  access: 'accessToken',
+  refresh: 'refreshToken'
+}
+
+// Other defaults
+{
+  environment: 'auto',        // Auto-detect client/server
+  tokenSource: 'body',        // Extract tokens from response body
+  storage: 'auto',           // Auto-select best storage
+  timeout: 10000,            // 10 second timeout
+  retry: { attempts: 3, delay: 1000 }
+}
 ```
 
 ## Configuration
 
-### Basic Configuration
+### Complete Configuration Interface
 
 ```typescript
 interface AuthFlowConfig {
-  endpoints: {
-    login: string;
-    refresh: string;
-    logout?: string;
+  // Optional: API endpoints (defaults provided)
+  endpoints?: {
+    login?: string; // Default: '/api/auth/login'
+    refresh?: string; // Default: '/api/auth/refresh'
+    logout?: string; // Default: '/api/auth/logout'
   };
-  tokens: {
-    access: string;
-    refresh: string;
+
+  // Optional: Token field names (defaults provided)
+  tokens?: {
+    access?: string; // Default: 'accessToken'
+    refresh?: string; // Default: 'refreshToken'
   };
+
   baseURL?: string;
   timeout?: number;
   storage?: StorageType | StorageConfig;
@@ -94,23 +136,16 @@ interface AuthFlowConfig {
 import { createAuthFlow } from '@jmndao/auth-flow';
 
 export default async function handler(req, res) {
-  const authClient = createAuthFlow(
+  const auth = createAuthFlow(
     {
-      endpoints: {
-        login: '/auth/login',
-        refresh: '/auth/refresh',
-      },
-      tokens: {
-        access: 'accessToken',
-        refresh: 'refreshToken',
-      },
+      baseURL: 'https://api.example.com',
       storage: 'cookies',
       environment: 'server',
     },
     { req, res }
   );
 
-  const data = await authClient.get('/protected-data');
+  const data = await auth.get('/protected-data');
   res.json(data);
 }
 ```
@@ -156,14 +191,88 @@ interface AuthError {
 Custom error handling:
 
 ```typescript
-const authClient = createAuthFlow({
-  // ... config
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
   onAuthError: (error) => {
     if (error.status === 401) {
       // Handle unauthorized access
       redirectToLogin();
     }
   },
+});
+```
+
+## Framework Examples
+
+### React
+
+```typescript
+import { createAuthFlow } from '@jmndao/auth-flow';
+
+const auth = createAuthFlow('https://api.example.com');
+
+function App() {
+  const [user, setUser] = useState(null);
+
+  const handleLogin = async (credentials) => {
+    try {
+      const userData = await auth.login(credentials);
+      setUser(userData);
+    } catch (error) {
+      console.error('Login failed:', error);
+    }
+  };
+
+  return (
+    <div>
+      {user ? (
+        <Dashboard user={user} />
+      ) : (
+        <LoginForm onLogin={handleLogin} />
+      )}
+    </div>
+  );
+}
+```
+
+### Next.js Server-Side
+
+```typescript
+// pages/api/profile.js
+import { createAuthFlow } from '@jmndao/auth-flow';
+
+export default async function handler(req, res) {
+  const auth = createAuthFlow('https://api.example.com', { req, res });
+
+  try {
+    const profile = await auth.get('/user/profile');
+    res.json(profile.data);
+  } catch (error) {
+    res.status(401).json({ error: 'Unauthorized' });
+  }
+}
+```
+
+### Express.js
+
+```typescript
+import { createAuthFlow } from '@jmndao/auth-flow';
+
+app.get('/dashboard', async (req, res) => {
+  const auth = createAuthFlow(
+    {
+      baseURL: 'https://api.example.com',
+      storage: 'cookies',
+    },
+    { req, res }
+  );
+
+  if (await auth.hasValidTokens()) {
+    const data = await auth.get('/dashboard-data');
+    res.json(data);
+  } else {
+    res.redirect('/login');
+  }
 });
 ```
 
@@ -196,14 +305,25 @@ class CustomStorageAdapter implements StorageAdapter {
 ### Token Refresh Callback
 
 ```typescript
-const authClient = createAuthFlow({
-  // ... config
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
   onTokenRefresh: (tokens) => {
     // Store tokens in external system
     analytics.track('token_refreshed');
   },
 });
 ```
+
+## Migration from Previous Versions
+
+### From v1.x to v2.x
+
+No breaking changes. Your existing configuration will continue to work. New features:
+
+- String baseURL support: `createAuthFlow('https://api.com')`
+- Smart defaults for endpoints and tokens
+- Improved TypeScript types
+- Better error messages with configured token names
 
 ## Browser Support
 
@@ -216,6 +336,12 @@ const authClient = createAuthFlow({
 ## Contributing
 
 Contributions are welcome! Please read our contributing guidelines and submit pull requests to our repository.
+
+## Documentation
+
+- [Configuration Guide](docs/configuration.md) - Complete configuration options and examples
+- [Usage Examples](docs/examples.md) - Framework-specific examples and advanced usage
+- [API Reference](docs/api-reference.md) - Detailed API documentation
 
 ## License
 

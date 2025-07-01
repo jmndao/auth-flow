@@ -7,21 +7,12 @@
 ```typescript
 import { createAuthFlow } from '@jmndao/auth-flow';
 
-const authClient = createAuthFlow({
-  endpoints: {
-    login: '/auth/login',
-    refresh: '/auth/refresh',
-  },
-  tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
-  baseURL: 'https://api.example.com',
-});
+// Minimal setup - just pass your API URL
+const auth = createAuthFlow('https://api.example.com');
 
 // Login
 try {
-  const user = await authClient.login({
+  const user = await auth.login({
     username: 'user@example.com',
     password: 'password',
   });
@@ -32,30 +23,53 @@ try {
 
 // Make authenticated requests
 try {
-  const response = await authClient.get('/user/profile');
+  const response = await auth.get('/user/profile');
   console.log('User profile:', response.data);
 } catch (error) {
   console.error('Request failed:', error.message);
 }
 
 // Logout
-await authClient.logout();
+await auth.logout();
 ```
 
 ### Check Authentication Status
 
 ```typescript
 // Synchronous check (fast, but less reliable)
-if (authClient.isAuthenticated()) {
+if (auth.isAuthenticated()) {
   console.log('User appears to be authenticated');
 }
 
 // Asynchronous check (validates tokens)
-if (await authClient.hasValidTokens()) {
+if (await auth.hasValidTokens()) {
   console.log('User has valid tokens');
 } else {
   console.log('User needs to login');
 }
+```
+
+### Custom Configuration
+
+```typescript
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  endpoints: {
+    login: '/auth/signin',
+    refresh: '/auth/refresh-token',
+  },
+  tokens: {
+    access: 'access_token',
+    refresh: 'refresh_token',
+  },
+  storage: 'localStorage',
+  timeout: 15000,
+  onAuthError: (error) => {
+    if (error.status === 401) {
+      window.location.href = '/login';
+    }
+  },
+});
 ```
 
 ## React Integration
@@ -65,7 +79,9 @@ if (await authClient.hasValidTokens()) {
 ```typescript
 // hooks/useAuth.ts
 import { useState, useEffect } from 'react';
-import { authClient } from '../auth';
+import { createAuthFlow } from '@jmndao/auth-flow';
+
+const auth = createAuthFlow('https://api.example.com');
 
 export const useAuth = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -78,11 +94,11 @@ export const useAuth = () => {
 
   const checkAuthStatus = async () => {
     try {
-      const hasTokens = await authClient.hasValidTokens();
+      const hasTokens = await auth.hasValidTokens();
       setIsAuthenticated(hasTokens);
 
       if (hasTokens) {
-        const profile = await authClient.get('/user/profile');
+        const profile = await auth.get('/user/profile');
         setUser(profile.data);
       }
     } catch (error) {
@@ -95,7 +111,7 @@ export const useAuth = () => {
 
   const login = async (credentials) => {
     try {
-      const userData = await authClient.login(credentials);
+      const userData = await auth.login(credentials);
       setUser(userData);
       setIsAuthenticated(true);
       return userData;
@@ -105,7 +121,7 @@ export const useAuth = () => {
   };
 
   const logout = async () => {
-    await authClient.logout();
+    await auth.logout();
     setIsAuthenticated(false);
     setUser(null);
   };
@@ -172,6 +188,8 @@ const LoginForm = () => {
     </form>
   );
 };
+
+export default LoginForm;
 ```
 
 ### Protected Route Component
@@ -194,6 +212,8 @@ const ProtectedRoute = ({ children }) => {
 
   return children;
 };
+
+export default ProtectedRoute;
 ```
 
 ## Next.js Integration
@@ -206,17 +226,9 @@ import { createAuthFlow } from '@jmndao/auth-flow';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const authClient = createAuthFlow(
+  const auth = createAuthFlow(
     {
-      endpoints: {
-        login: '/auth/login',
-        refresh: '/auth/refresh',
-      },
-      tokens: {
-        access: 'accessToken',
-        refresh: 'refreshToken',
-      },
-      baseURL: process.env.API_BASE_URL,
+      baseURL: process.env.API_BASE_URL || 'https://api.example.com',
       storage: 'cookies',
       environment: 'server',
     },
@@ -225,12 +237,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     // Check if user is authenticated
-    if (!(await authClient.hasValidTokens())) {
+    if (!(await auth.hasValidTokens())) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     // Make authenticated request to backend
-    const data = await authClient.get('/protected-resource');
+    const data = await auth.get('/protected-resource');
     res.json(data.data);
   } catch (error) {
     console.error('API Error:', error);
@@ -261,22 +273,14 @@ const Dashboard = ({ user, data }: DashboardProps) => {
 };
 
 export const getServerSideProps: GetServerSideProps = async ({ req, res }) => {
-  const authClient = createAuthFlow({
-    endpoints: {
-      login: '/auth/login',
-      refresh: '/auth/refresh'
-    },
-    tokens: {
-      access: 'accessToken',
-      refresh: 'refreshToken'
-    },
-    baseURL: process.env.API_BASE_URL,
+  const auth = createAuthFlow({
+    baseURL: process.env.API_BASE_URL || 'https://api.example.com',
     storage: 'cookies',
     environment: 'server'
   }, { req, res });
 
   try {
-    if (!(await authClient.hasValidTokens())) {
+    if (!(await auth.hasValidTokens())) {
       return {
         redirect: {
           destination: '/login',
@@ -286,8 +290,8 @@ export const getServerSideProps: GetServerSideProps = async ({ req, res }) => {
     }
 
     const [userResponse, dataResponse] = await Promise.all([
-      authClient.get('/user/profile'),
-      authClient.get('/dashboard-data')
+      auth.get('/user/profile'),
+      auth.get('/dashboard-data')
     ]);
 
     return {
@@ -309,6 +313,41 @@ export const getServerSideProps: GetServerSideProps = async ({ req, res }) => {
 export default Dashboard;
 ```
 
+### Next.js App Router (13+)
+
+```typescript
+// app/dashboard/page.tsx
+import { createAuthFlow } from '@jmndao/auth-flow';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+
+export default async function DashboardPage() {
+  const auth = createAuthFlow({
+    baseURL: process.env.API_BASE_URL || 'https://api.example.com',
+    storage: 'cookies',
+    environment: 'server'
+  }, { cookies });
+
+  try {
+    if (!(await auth.hasValidTokens())) {
+      redirect('/login');
+    }
+
+    const userData = await auth.get('/user/profile');
+    const dashboardData = await auth.get('/dashboard-data');
+
+    return (
+      <div>
+        <h1>Welcome, {userData.data.name}</h1>
+        <pre>{JSON.stringify(dashboardData.data, null, 2)}</pre>
+      </div>
+    );
+  } catch (error) {
+    redirect('/login');
+  }
+}
+```
+
 ## Express.js Integration
 
 ### Authentication Middleware
@@ -319,7 +358,7 @@ import { createAuthFlow } from '@jmndao/auth-flow';
 import { Request, Response, NextFunction } from 'express';
 
 interface AuthenticatedRequest extends Request {
-  authClient?: any;
+  auth?: any;
   user?: any;
 }
 
@@ -328,17 +367,9 @@ export const authMiddleware = async (
   res: Response,
   next: NextFunction
 ) => {
-  const authClient = createAuthFlow(
+  const auth = createAuthFlow(
     {
-      endpoints: {
-        login: '/auth/login',
-        refresh: '/auth/refresh',
-      },
-      tokens: {
-        access: 'access_token',
-        refresh: 'refresh_token',
-      },
-      baseURL: process.env.API_BASE_URL,
+      baseURL: process.env.API_BASE_URL || 'https://api.example.com',
       storage: 'cookies',
       environment: 'server',
     },
@@ -346,15 +377,15 @@ export const authMiddleware = async (
   );
 
   try {
-    if (!(await authClient.hasValidTokens())) {
+    if (!(await auth.hasValidTokens())) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     // Attach auth client to request for use in routes
-    req.authClient = authClient;
+    req.auth = auth;
 
     // Optionally fetch user data
-    const userResponse = await authClient.get('/user/profile');
+    const userResponse = await auth.get('/user/profile');
     req.user = userResponse.data;
 
     next();
@@ -377,7 +408,7 @@ const router = express.Router();
 router.get('/dashboard', authMiddleware, async (req: any, res) => {
   try {
     // Use the authenticated client from middleware
-    const dashboardData = await req.authClient.get('/dashboard-stats');
+    const dashboardData = await req.auth.get('/dashboard-stats');
 
     res.json({
       user: req.user,
@@ -398,7 +429,9 @@ export default router;
 ```typescript
 // composables/useAuth.ts
 import { ref, computed } from 'vue';
-import { authClient } from '../auth';
+import { createAuthFlow } from '@jmndao/auth-flow';
+
+const auth = createAuthFlow('https://api.example.com');
 
 const user = ref(null);
 const loading = ref(false);
@@ -409,7 +442,7 @@ export const useAuth = () => {
   const login = async (credentials: any) => {
     loading.value = true;
     try {
-      const userData = await authClient.login(credentials);
+      const userData = await auth.login(credentials);
       user.value = userData;
       return userData;
     } finally {
@@ -418,13 +451,13 @@ export const useAuth = () => {
   };
 
   const logout = async () => {
-    await authClient.logout();
+    await auth.logout();
     user.value = null;
   };
 
   const checkAuthStatus = async () => {
-    if (await authClient.hasValidTokens()) {
-      const profile = await authClient.get('/user/profile');
+    if (await auth.hasValidTokens()) {
+      const profile = await auth.get('/user/profile');
       user.value = profile.data;
     }
   };
@@ -438,6 +471,41 @@ export const useAuth = () => {
     checkAuthStatus,
   };
 };
+```
+
+### Vue Component
+
+```vue
+<template>
+  <div>
+    <div v-if="loading">Loading...</div>
+    <div v-else-if="isAuthenticated">
+      <h1>Welcome, {{ user.name }}</h1>
+      <button @click="logout">Logout</button>
+    </div>
+    <LoginForm v-else @login="handleLogin" />
+  </div>
+</template>
+
+<script setup>
+import { onMounted } from 'vue';
+import { useAuth } from '@/composables/useAuth';
+import LoginForm from '@/components/LoginForm.vue';
+
+const { isAuthenticated, loading, user, login, logout, checkAuthStatus } = useAuth();
+
+const handleLogin = async (credentials) => {
+  try {
+    await login(credentials);
+  } catch (error) {
+    console.error('Login failed:', error);
+  }
+};
+
+onMounted(() => {
+  checkAuthStatus();
+});
+</script>
 ```
 
 ## Advanced Examples
@@ -489,56 +557,17 @@ class RedisStorageAdapter implements StorageAdapter {
 }
 
 // Usage
-const authClient = createAuthFlow({
-  endpoints: {
-    login: '/auth/login',
-    refresh: '/auth/refresh',
-  },
-  tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
-  storage: new RedisStorageAdapter(redisClient),
-});
-```
-
-### Request Interceptor for API Keys
-
-```typescript
-import { createAuthFlow } from '@jmndao/auth-flow';
-
-const authClient = createAuthFlow({
-  endpoints: {
-    login: '/auth/login',
-    refresh: '/auth/refresh',
-  },
-  tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
+const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-});
-
-// Add custom headers to all requests
-authClient.axiosInstance.interceptors.request.use((config) => {
-  config.headers['X-API-Key'] = process.env.API_KEY;
-  config.headers['X-Client-Version'] = '1.0.0';
-  return config;
+  storage: new RedisStorageAdapter(redisClient),
 });
 ```
 
 ### Error Handling with Toast Notifications
 
 ```typescript
-const authClient = createAuthFlow({
-  endpoints: {
-    login: '/auth/login',
-    refresh: '/auth/refresh',
-  },
-  tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
   onAuthError: (error) => {
     switch (error.status) {
       case 401:
@@ -570,19 +599,10 @@ const authClient = createAuthFlow({
 
 ```typescript
 // Different clients for different APIs
-const mainApiClient = createAuthFlow({
-  endpoints: {
-    login: '/auth/login',
-    refresh: '/auth/refresh',
-  },
-  tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
-  baseURL: 'https://api.example.com',
-});
+const mainAuth = createAuthFlow('https://api.example.com');
 
-const analyticsApiClient = createAuthFlow({
+const analyticsAuth = createAuthFlow({
+  baseURL: 'https://analytics.example.com',
   endpoints: {
     login: '/analytics/auth/login',
     refresh: '/analytics/auth/refresh',
@@ -591,11 +611,196 @@ const analyticsApiClient = createAuthFlow({
     access: 'token',
     refresh: 'refreshToken',
   },
-  baseURL: 'https://analytics.example.com',
   storage: 'memory', // Separate storage
 });
 
 // Use different clients for different purposes
-const userData = await mainApiClient.get('/user/profile');
-const analytics = await analyticsApiClient.get('/user/analytics');
+const userData = await mainAuth.get('/user/profile');
+const analytics = await analyticsAuth.get('/user/analytics');
+```
+
+### Environment-Based Configuration
+
+```typescript
+// config/auth.ts
+const getAuthConfig = () => {
+  const isDev = process.env.NODE_ENV === 'development';
+  const isProd = process.env.NODE_ENV === 'production';
+
+  return createAuthFlow({
+    baseURL: isDev ? 'http://localhost:3001' : 'https://api.example.com',
+
+    storage: isProd
+      ? { type: 'cookies', options: { secure: true, sameSite: 'strict' } }
+      : 'localStorage',
+
+    timeout: isDev ? 30000 : 10000,
+
+    retry: {
+      attempts: isProd ? 3 : 1,
+      delay: isProd ? 1000 : 500,
+    },
+
+    onAuthError: (error) => {
+      if (isDev) {
+        console.warn('Auth error:', error);
+      } else {
+        analytics.track('auth_error', { status: error.status, code: error.code });
+      }
+    },
+  });
+};
+
+export const auth = getAuthConfig();
+```
+
+### Interceptors for Additional Headers
+
+```typescript
+const auth = createAuthFlow('https://api.example.com');
+
+// Add custom headers to all requests
+auth.axiosInstance.interceptors.request.use((config) => {
+  config.headers['X-API-Key'] = process.env.API_KEY;
+  config.headers['X-Client-Version'] = '1.0.0';
+  config.headers['X-Device-ID'] = getDeviceId();
+  return config;
+});
+
+// Add response logging
+auth.axiosInstance.interceptors.response.use(
+  (response) => {
+    console.log('API Response:', response.config.url, response.status);
+    return response;
+  },
+  (error) => {
+    console.error('API Error:', error.config?.url, error.response?.status);
+    return Promise.reject(error);
+  }
+);
+```
+
+### Testing with Mock Storage
+
+```typescript
+// test/auth.test.ts
+import { createAuthFlow, MemoryStorageAdapter } from '@jmndao/auth-flow';
+
+describe('Authentication', () => {
+  let auth;
+
+  beforeEach(() => {
+    auth = createAuthFlow({
+      baseURL: 'https://api.test.com',
+      storage: new MemoryStorageAdapter(), // Use memory storage for tests
+    });
+  });
+
+  it('should login successfully', async () => {
+    // Mock axios response
+    jest.spyOn(auth.axiosInstance, 'post').mockResolvedValue({
+      data: {
+        accessToken: 'test-access-token',
+        refreshToken: 'test-refresh-token',
+        user: { id: 1, name: 'Test User' },
+      },
+    });
+
+    const user = await auth.login({ username: 'test', password: 'test' });
+
+    expect(user.name).toBe('Test User');
+    expect(auth.isAuthenticated()).toBe(true);
+  });
+
+  it('should handle logout', async () => {
+    // Set tokens first
+    await auth.setTokens({
+      accessToken: 'test-access-token',
+      refreshToken: 'test-refresh-token',
+    });
+
+    await auth.logout();
+
+    expect(auth.isAuthenticated()).toBe(false);
+    expect(await auth.getTokens()).toBeNull();
+  });
+});
+```
+
+### Real-time Token Status
+
+```typescript
+// utils/authStatus.ts
+import { createAuthFlow } from '@jmndao/auth-flow';
+
+const auth = createAuthFlow('https://api.example.com');
+
+// Check token status periodically
+const startTokenMonitoring = () => {
+  setInterval(async () => {
+    try {
+      const hasValid = await auth.hasValidTokens();
+      if (!hasValid && auth.isAuthenticated()) {
+        // Tokens expired but user thinks they're logged in
+        console.warn('Tokens expired, redirecting to login');
+        window.location.href = '/login';
+      }
+    } catch (error) {
+      console.error('Token monitoring error:', error);
+    }
+  }, 60000); // Check every minute
+};
+
+// Start monitoring when app loads
+startTokenMonitoring();
+
+export { auth };
+```
+
+### Progressive Web App Integration
+
+```typescript
+// sw.js (Service Worker)
+import { createAuthFlow } from '@jmndao/auth-flow';
+
+// Handle auth in service worker for offline scenarios
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  storage: 'memory', // Use memory in service worker
+  onAuthError: (error) => {
+    // Send message to main thread
+    self.clients.matchAll().then((clients) => {
+      clients.forEach((client) => {
+        client.postMessage({
+          type: 'AUTH_ERROR',
+          error: error,
+        });
+      });
+    });
+  },
+});
+
+// Cache authenticated requests
+self.addEventListener('fetch', async (event) => {
+  if (event.request.url.includes('/api/')) {
+    event.respondWith(
+      caches.match(event.request).then(async (response) => {
+        if (response) {
+          return response;
+        }
+
+        // Make authenticated request
+        try {
+          const authResponse = await auth.get(event.request.url);
+          const cache = await caches.open('api-cache');
+          cache.put(event.request, authResponse.clone());
+          return authResponse;
+        } catch (error) {
+          // Return cached version if available
+          return caches.match(event.request);
+        }
+      })
+    );
+  }
+});
 ```
