@@ -43,4 +43,5 @@ export interface QueuedRequest {
   reject: (error: any) => void;
 }
 
+// Import needed types
 import type { TokenPair, RequestConfig } from './config';

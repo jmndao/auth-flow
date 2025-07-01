@@ -12,8 +12,14 @@ export function validateConfig(config: AuthFlowConfig): void {
     throw new ValidationError('Configuration is required');
   }
 
-  validateEndpoints(config.endpoints);
-  validateTokens(config.tokens);
+  // Only validate if provided - defaults are handled in createAuthFlow
+  if (config.endpoints) {
+    validateEndpoints(config.endpoints);
+  }
+
+  if (config.tokens) {
+    validateTokens(config.tokens);
+  }
 
   if (config.environment) {
     validateEnvironment(config.environment);
@@ -53,7 +59,7 @@ function validateEndpoints(endpoints: any): void {
     throw new ValidationError('endpoints.logout must be a string');
   }
 
-  // Validate URL format (basic check)
+  // Validate URL format
   [endpoints.login, endpoints.refresh, endpoints.logout].filter(Boolean).forEach((url) => {
     if (!isValidUrl(url)) {
       throw new ValidationError(`Invalid URL format: ${url}`);
@@ -153,7 +159,7 @@ function validateRetryConfig(retry: any): void {
 
 function isValidUrl(url: string): boolean {
   try {
-    // Allow relative URLs (starting with /) or absolute URLs
+    // Allow relative URLs or absolute URLs
     if (url.startsWith('/')) {
       return true;
     }

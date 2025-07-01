@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import type {
   AuthFlowConfig,
+  ValidatedAuthFlowConfig,
   TokenPair,
   LoginCredentials,
   LoginResponse,
@@ -16,7 +17,7 @@ import { ErrorHandler } from './error-handler';
 import { validateConfig, validateLoginCredentials } from '../utils';
 
 export class AuthClient implements HttpMethod, AuthMethods {
-  private readonly config: AuthFlowConfig;
+  private readonly config: ValidatedAuthFlowConfig;
   private readonly tokenManager: TokenManager;
   private readonly requestQueue: RequestQueue;
   private readonly errorHandler: ErrorHandler;
@@ -26,6 +27,15 @@ export class AuthClient implements HttpMethod, AuthMethods {
   constructor(config: AuthFlowConfig, context: AuthContext = {}) {
     validateConfig(config);
 
+    // Ensure required config properties exist
+    if (!config.endpoints) {
+      throw new Error('Endpoints configuration is required');
+    }
+    if (!config.tokens) {
+      throw new Error('Tokens configuration is required');
+    }
+
+    // Create validated config
     this.config = {
       environment: 'auto',
       tokenSource: 'body',
@@ -33,11 +43,14 @@ export class AuthClient implements HttpMethod, AuthMethods {
       timeout: 10000,
       retry: { attempts: 3, delay: 1000 },
       ...config,
-    };
+      // Ensure these are definitely assigned after spread
+      endpoints: config.endpoints,
+      tokens: config.tokens,
+    } as ValidatedAuthFlowConfig;
 
     this.context = context;
 
-    // Initialize core components
+    // Initialize components - now TypeScript knows these are defined
     this.tokenManager = new TokenManager(
       this.config.tokens,
       this.config.storage,
@@ -81,7 +94,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
       async (error) => {
         const authError = this.errorHandler.handleError(error);
 
-        // Check if it's a token expiration error and we haven't already tried to refresh
+        // Check if token expired and we can refresh
         if (
           this.errorHandler.isTokenExpiredError(authError) &&
           !error.config._retry &&
@@ -97,7 +110,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
             return this.axiosInstance.request(error.config);
           } catch (refreshError) {
-            // If refresh fails, clear tokens and propagate error
+            // If refresh fails, clear tokens
             await this.clearTokens();
             throw this.errorHandler.handleError(refreshError);
           }
@@ -108,7 +121,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
     );
   }
 
-  // Authentication Methods
+  // Auth Methods
   async login<TUser = any, TCredentials = LoginCredentials>(
     credentials: TCredentials
   ): Promise<TUser> {
@@ -128,7 +141,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
         this.config.onTokenRefresh(tokens);
       }
 
-      // Return the user data from response
       return response.data;
     } catch (error) {
       throw this.errorHandler.handleError(error);
@@ -142,15 +154,13 @@ export class AuthClient implements HttpMethod, AuthMethods {
         try {
           await this.axiosInstance.post(this.config.endpoints.logout);
         } catch (error) {
-          // Log but don't throw - we still want to clear local tokens
+          // Log but don't throw - still clear local tokens
           console.warn('Logout endpoint failed:', error);
         }
       }
 
-      // Clear tokens
       await this.clearTokens();
 
-      // Call logout callback if provided
       if (this.config.onLogout) {
         this.config.onLogout();
       }
@@ -159,27 +169,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     }
   }
 
-  // isAuthenticated(): boolean {
-  //   // This is a synchronous check - for async check use hasValidTokens()
-  //   return this.tokenManager.hasTokens() as any; // Note: hasTokens returns Promise, but we need sync here
-  // }
+  // Synchronous auth check
   isAuthenticated(): boolean {
-    // This is a synchronous check - for async check use hasValidTokens()
-    // We'll do a basic synchronous check by trying to get tokens synchronously
-    try {
-      const storageAdapter = (this.tokenManager as any).storageAdapter;
-      const accessToken = storageAdapter.get(this.config.tokens.access);
-      const refreshToken = storageAdapter.get(this.config.tokens.refresh);
-
-      // If storage is async, we can't determine synchronously, return false
-      if (accessToken instanceof Promise || refreshToken instanceof Promise) {
-        return false;
-      }
-
-      return Boolean(accessToken && refreshToken);
-    } catch {
-      return false;
-    }
+    return this.tokenManager.hasTokensSync();
   }
 
   async hasValidTokens(): Promise<boolean> {
@@ -272,12 +264,11 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
       const newTokens: TokenPair = {
         accessToken: refreshData.accessToken,
-        refreshToken: refreshData.refreshToken || refreshToken, // Use new refresh token if provided
+        refreshToken: refreshData.refreshToken || refreshToken, // Use new or keep existing
       };
 
       await this.tokenManager.setTokens(newTokens);
 
-      // Call token refresh callback if provided
       if (this.config.onTokenRefresh) {
         this.config.onTokenRefresh(newTokens);
       }
@@ -301,7 +292,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
     if (!accessToken || !refreshToken) {
       throw new Error(
-        `Tokens not found in response body. Expected keys: ${this.config.tokens.access}, ${this.config.tokens.refresh}`
+        `Tokens not found in response. Expected: ${this.config.tokens.access}, ${this.config.tokens.refresh}`
       );
     }
 
@@ -309,14 +300,13 @@ export class AuthClient implements HttpMethod, AuthMethods {
   }
 
   private async extractTokensFromCookies(_response: AxiosResponse): Promise<TokenPair> {
-    // For cookie extraction, tokens should be automatically stored by the cookie adapter
-    // We need to read them from storage after the response
-    await new Promise((resolve) => setTimeout(resolve, 0)); // Allow cookies to be set
+    // Allow cookies to be set first
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const tokens = await this.tokenManager.getTokens();
     if (!tokens) {
       throw new Error(
-        `Tokens not found in cookies after login. Expected cookies: ${this.config.tokens.access}, ${this.config.tokens.refresh}`
+        `Tokens not found in cookies. Expected: ${this.config.tokens.access}, ${this.config.tokens.refresh}`
       );
     }
 

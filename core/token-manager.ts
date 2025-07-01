@@ -11,9 +11,9 @@ import { LocalStorageAdapter, CookieStorageAdapter, MemoryStorageAdapter } from 
 import { getOptimalStorageType, detectEnvironment, validateTokenPair } from '../utils';
 
 export class TokenManager {
-  private storageAdapter: StorageAdapter;
-  private tokenConfig: TokenConfig;
-  private environment: Environment;
+  private readonly storageAdapter: StorageAdapter;
+  private readonly tokenConfig: TokenConfig;
+  private readonly environment: Environment;
 
   constructor(
     tokenConfig: TokenConfig,
@@ -54,8 +54,8 @@ export class TokenManager {
         return new MemoryStorageAdapter();
 
       default:
-        // Fallback to memory storage
-        console.warn(`Unsupported storage type: ${storageType}. Falling back to memory storage.`);
+        // Fallback to memory
+        console.warn(`Unsupported storage type: ${storageType}. Using memory storage.`);
         return new MemoryStorageAdapter();
     }
   }
@@ -69,10 +69,7 @@ export class TokenManager {
         return null;
       }
 
-      return {
-        accessToken,
-        refreshToken,
-      };
+      return { accessToken, refreshToken };
     } catch (error) {
       console.error('Error getting tokens:', error);
       return null;
@@ -111,24 +108,6 @@ export class TokenManager {
     }
   }
 
-  async setAccessToken(token: string): Promise<void> {
-    try {
-      await this.setToken(this.tokenConfig.access, token);
-    } catch (error) {
-      console.error('Error setting access token:', error);
-      throw error;
-    }
-  }
-
-  async setRefreshToken(token: string): Promise<void> {
-    try {
-      await this.setToken(this.tokenConfig.refresh, token);
-    } catch (error) {
-      console.error('Error setting refresh token:', error);
-      throw error;
-    }
-  }
-
   async clearTokens(): Promise<void> {
     try {
       await Promise.all([
@@ -161,6 +140,23 @@ export class TokenManager {
     );
   }
 
+  // Synchronous token check for isAuthenticated()
+  hasTokensSync(): boolean {
+    try {
+      const accessToken = this.storageAdapter.get(this.tokenConfig.access);
+      const refreshToken = this.storageAdapter.get(this.tokenConfig.refresh);
+
+      // If storage is async, we can't determine synchronously
+      if (accessToken instanceof Promise || refreshToken instanceof Promise) {
+        return false;
+      }
+
+      return Boolean(accessToken && refreshToken);
+    } catch {
+      return false;
+    }
+  }
+
   private async getToken(key: string): Promise<string | null> {
     const result = this.storageAdapter.get(key);
     return result instanceof Promise ? await result : result;
@@ -180,24 +176,23 @@ export class TokenManager {
     }
   }
 
-  // Utility method to check if a token looks like it's expired (basic JWT check)
+  // JWT token expiration check
   isTokenExpired(token: string): boolean {
     try {
       // Basic JWT structure check
       const parts = token.split('.');
-      if (parts.length !== 3) return true; // Non-JWT tokens are considered "expired"
+      if (parts.length !== 3) return true;
 
-      // Decode payload (second part)
+      // Decode payload
       const payload = JSON.parse(atob(parts[1]));
 
-      // Check if token has expiration time
+      // Check expiration
       if (!payload.exp) return false;
 
-      // Check if token is expired (exp is in seconds, Date.now() is in milliseconds)
       const now = Math.floor(Date.now() / 1000);
       return payload.exp < now;
     } catch {
-      // If we can't decode the token, consider it expired for safety
+      // If can't decode, consider expired for safety
       return true;
     }
   }

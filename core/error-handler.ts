@@ -18,7 +18,7 @@ export class ErrorHandler {
   handleError(error: any): AuthError {
     const authError = this.normalizeError(error);
 
-    // Call the error callback if provided
+    // Call error callback for auth errors
     if (this.onAuthError && this.isAuthenticationError(authError)) {
       try {
         this.onAuthError(authError);
@@ -41,7 +41,7 @@ export class ErrorHandler {
       };
     }
 
-    // Handle request errors (network issues, etc.)
+    // Handle network errors
     if (error.request) {
       return {
         status: 0,
@@ -94,8 +94,8 @@ export class ErrorHandler {
     return error.status === 0 || error.code === 'NETWORK_ERROR';
   }
 
-  shouldRetry(error: AuthError, attemptCount: number = 0): boolean {
-    // Don't retry authentication errors (401, 403)
+  shouldRetry(error: AuthError, _attemptCount: number = 0): boolean {
+    // Don't retry auth errors
     if (this.isAuthenticationError(error)) {
       return false;
     }
@@ -103,11 +103,6 @@ export class ErrorHandler {
     // Don't retry client errors (4xx except 401/403)
     if (error.status >= 400 && error.status < 500) {
       return false;
-    }
-
-    // Retry network errors and server errors (5xx) up to the limit
-    if (this.isNetworkError(error) || error.status >= 500) {
-      return attemptCount < this.retryAttempts;
     }
 
     return false;
@@ -125,7 +120,7 @@ export class ErrorHandler {
       } catch (error) {
         lastError = this.normalizeError(error);
 
-        // Don't retry if it's not a retryable error
+        // Don't retry if not retryable
         if (!this.shouldRetry(lastError, attempt)) {
           throw lastError;
         }
@@ -138,7 +133,7 @@ export class ErrorHandler {
       }
     }
 
-    // If we've exhausted all retries, throw the last error
+    // If exhausted all retries, throw last error
     throw lastError!;
   }
 
@@ -146,7 +141,7 @@ export class ErrorHandler {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // Static utility methods for common error scenarios
+  // Static utility methods
   static createAuthError(status: number, message: string, code?: string): AuthError {
     return {
       status,

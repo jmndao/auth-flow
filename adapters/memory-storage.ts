@@ -1,7 +1,7 @@
 import type { StorageAdapter } from '../types';
 
 export class MemoryStorageAdapter implements StorageAdapter {
-  private storage: Map<string, string> = new Map();
+  private readonly storage: Map<string, string> = new Map();
 
   get(key: string): string | null {
     return this.storage.get(key) || null;

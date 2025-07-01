@@ -22,4 +22,5 @@ export interface StorageAdapterContext {
   req?: any;
   res?: any;
   environment?: 'client' | 'server';
+  cookies?: () => any; // Add cookies function for Next.js style
 }

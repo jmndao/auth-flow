@@ -1,9 +1,9 @@
 import type { StorageAdapter, CookieStorageOptions, StorageAdapterContext } from '../types';
 
 export class CookieStorageAdapter implements StorageAdapter {
-  private context: StorageAdapterContext;
-  private options: CookieStorageOptions;
-  private isServer: boolean;
+  private readonly context: StorageAdapterContext;
+  private readonly options: CookieStorageOptions;
+  private readonly isServer: boolean;
 
   constructor(context: StorageAdapterContext = {}, options: CookieStorageOptions = {}) {
     this.context = context;
@@ -42,11 +42,11 @@ export class CookieStorageAdapter implements StorageAdapter {
   }
 
   clear(): void {
-    // Note: We can't clear all cookies, only the ones we know about
-    // This would need to be implemented by the calling code
-    console.warn('Cookie clear() is not implemented - clear tokens individually');
+    // Can't clear all cookies, only warn
+    console.warn('Cookie clear() not implemented - clear tokens individually');
   }
 
+  // Client-side cookie methods
   private getClientSideCookie(key: string): string | null {
     if (typeof document === 'undefined') return null;
 
@@ -69,19 +69,15 @@ export class CookieStorageAdapter implements StorageAdapter {
     if (this.options.maxAge) {
       cookieString += `; Max-Age=${this.options.maxAge}`;
     }
-
     if (this.options.path) {
       cookieString += `; Path=${this.options.path}`;
     }
-
     if (this.options.domain) {
       cookieString += `; Domain=${this.options.domain}`;
     }
-
     if (this.options.secure) {
       cookieString += '; Secure';
     }
-
     if (this.options.sameSite) {
       cookieString += `; SameSite=${this.options.sameSite}`;
     }
@@ -93,11 +89,9 @@ export class CookieStorageAdapter implements StorageAdapter {
     if (typeof document === 'undefined') return;
 
     let cookieString = `${key}=; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
-
     if (this.options.path) {
       cookieString += `; Path=${this.options.path}`;
     }
-
     if (this.options.domain) {
       cookieString += `; Domain=${this.options.domain}`;
     }
@@ -105,17 +99,31 @@ export class CookieStorageAdapter implements StorageAdapter {
     document.cookie = cookieString;
   }
 
+  // Server-side cookie methods
   private getServerSideCookie(key: string): string | null {
-    if (!this.context.req?.cookies) return null;
+    // Try different cookie access patterns
+    if (this.context.req?.cookies) {
+      return this.context.req.cookies[key] || null;
+    }
 
-    return this.context.req.cookies[key] || null;
+    // Try Next.js style
+    if (this.context.cookies && typeof this.context.cookies === 'function') {
+      try {
+        const cookieStore = this.context.cookies();
+        return cookieStore.get(key)?.value || null;
+      } catch {
+        // Fallback
+      }
+    }
+
+    return null;
   }
 
   private setServerSideCookie(key: string, value: string): void {
     if (!this.context.res) return;
 
     const cookieOptions: any = {
-      maxAge: this.options.maxAge ? this.options.maxAge * 1000 : undefined, // Convert to milliseconds
+      maxAge: this.options.maxAge ? this.options.maxAge * 1000 : undefined,
       secure: this.options.secure,
       sameSite: this.options.sameSite,
       path: this.options.path,
@@ -167,27 +175,21 @@ export class CookieStorageAdapter implements StorageAdapter {
     if (options.expires) {
       cookieString += `; Expires=${options.expires.toUTCString()}`;
     }
-
     if (options.maxAge) {
       cookieString += `; Max-Age=${Math.floor(options.maxAge / 1000)}`;
     }
-
     if (options.path) {
       cookieString += `; Path=${options.path}`;
     }
-
     if (options.domain) {
       cookieString += `; Domain=${options.domain}`;
     }
-
     if (options.secure) {
       cookieString += '; Secure';
     }
-
     if (options.httpOnly) {
       cookieString += '; HttpOnly';
     }
-
     if (options.sameSite) {
       cookieString += `; SameSite=${options.sameSite}`;
     }
