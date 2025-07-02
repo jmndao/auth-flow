@@ -91,7 +91,7 @@
   "bugs": {
     "url": "https://github.com/jmndao/auth-flow/issues"
   },
-  "homepage": "https://github.com/jmndao/auth-flow#readme",
+  "homepage": "https://auth-flow-virid.vercel.app",
   "engines": {
     "node": ">=16.0.0"
   },
