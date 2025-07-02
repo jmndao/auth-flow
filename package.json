@@ -15,21 +15,25 @@
     "build": "rollup -c",
     "build:watch": "rollup -c -w",
     "build:v2": "rollup -c rollup.config.v2.mjs",
+    "build:middleware": "rollup -c rollup.config.middleware.mjs",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:ci": "jest --coverage --watchAll=false --passWithNoTests",
     "test:v2": "jest --testPathPattern=v2",
+    "test:middleware": "jest --testPathPattern=middleware",
     "type-check": "tsc --noEmit",
     "type-check:v2": "tsc --noEmit -p tsconfig.v2.json",
+    "type-check:middleware": "tsc --noEmit -p tsconfig.middleware.json",
     "lint": "eslint . --ext .ts,.tsx --ignore-path .gitignore",
     "lint:fix": "eslint . --ext .ts,.tsx --fix --ignore-path .gitignore",
     "format": "prettier --write **/*.{ts,tsx,js,json,md}",
     "format:check": "prettier --check **/*.{ts,tsx,js,json,md}",
     "dev": "rollup -c -w",
     "dev:v2": "rollup -c rollup.config.v2.mjs -w",
+    "dev:middleware": "rollup -c rollup.config.middleware.mjs -w",
     "pretest": "npm run type-check && npm run lint",
-    "prepublishOnly": "npm run clean && npm run pretest && npm run test:ci && npm run build && npm run build:v2",
+    "prepublishOnly": "npm run clean && npm run pretest && npm run test:ci && npm run build && npm run build:v2 && npm run build:middleware",
     "clean": "rimraf dist coverage",
     "changelog": "node scripts/changelog.js",
     "version": "node scripts/version.js && git add .",
@@ -37,8 +41,9 @@
     "release:minor": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version minor && npm publish && git push --follow-tags",
     "release:major": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version major && npm publish && git push --follow-tags",
     "benchmark": "node scripts/benchmark.js",
-    "docs": "typedoc --out docs src/index.ts",
-    "docs:v2": "typedoc --out docs/v2 src/index-v2.ts"
+    "docs": "typedoc --out docs index.ts",
+    "docs:v2": "typedoc --out docs/v2 index-v2.ts",
+    "docs:middleware": "typedoc --out docs/middleware middleware/index.ts"
   },
   "keywords": [
     "authentication",
@@ -124,6 +129,11 @@
       "import": "./dist/index-v2.esm.js",
       "require": "./dist/index-v2.js",
       "types": "./dist/index-v2.d.ts"
+    },
+    "./middleware": {
+      "import": "./dist/middleware.esm.js",
+      "require": "./dist/middleware.js",
+      "types": "./dist/middleware.d.ts"
     }
   },
   "sideEffects": false,

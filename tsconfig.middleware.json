@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "declaration": true,
+    "declarationMap": true,
+    "rootDir": ".",
+    "module": "ESNext",
+    "target": "ES2020"
+  },
+  "include": ["middleware/**/*"],
+  "exclude": ["node_modules", "dist", "tests", "coverage"]
+}

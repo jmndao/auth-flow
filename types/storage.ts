@@ -23,8 +23,16 @@ export interface CookieStorageOptions extends StorageOptions {
 }
 
 export interface StorageAdapterContext {
+  /** Express-style request object */
   req?: any;
+  /** Express-style response object */
   res?: any;
+  /** Environment indicator */
   environment?: 'client' | 'server';
+  /** Next.js App Router cookies() function */
   cookies?: () => any;
+  /** Pre-extracted cookies object for performance */
+  cookiesObject?: Record<string, string>;
+  /** Custom cookie setter function */
+  cookieSetter?: (name: string, value: string, options?: any) => void;
 }

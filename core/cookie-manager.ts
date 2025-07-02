@@ -32,16 +32,20 @@ export class CookieManager implements StorageAdapter {
       ...options,
     };
     this.isServer = typeof window === 'undefined';
+
+    if (this.options.debugMode) {
+      console.log('CookieManager initialized', { isServer: this.isServer, context: !!context });
+    }
   }
 
   async get(key: string): Promise<string | null> {
     if (this.options.debugMode) {
-      console.log(`Cookie get: ${key}`);
+      console.log(`Cookie get: ${key} (server: ${this.isServer})`);
     }
 
     // Try multiple times for cookie propagation
     for (let attempt = 0; attempt < (this.options.retryCount || 3); attempt++) {
-      const value = this.isServer ? this.getServerCookie(key) : this.getClientCookie(key);
+      const value = this.isServer ? await this.getServerCookie(key) : this.getClientCookie(key);
 
       if (value) {
         if (this.options.debugMode) {
@@ -78,7 +82,7 @@ export class CookieManager implements StorageAdapter {
 
   set(key: string, value: string): void {
     if (this.options.debugMode) {
-      console.log(`Setting cookie: ${key}`);
+      console.log(`Setting cookie: ${key} (server: ${this.isServer})`);
     }
 
     if (this.isServer) {
@@ -100,7 +104,6 @@ export class CookieManager implements StorageAdapter {
     console.warn('Cookie clear() - use remove() for specific tokens');
   }
 
-  // Store tokens for fallback during cookie propagation delays
   setFallbackTokens(tokens: TokenPair): void {
     this.fallbackTokens = tokens;
   }
@@ -161,23 +164,42 @@ export class CookieManager implements StorageAdapter {
     document.cookie = cookieString;
   }
 
-  private getServerCookie(key: string): string | null {
-    // Try multiple cookie access patterns
+  private async getServerCookie(key: string): Promise<string | null> {
     const attempts = [
-      () => this.context.req?.cookies?.[key],
-      () => {
+      // Next.js App Router cookies() API
+      async () => {
         if (this.context.cookies && typeof this.context.cookies === 'function') {
           try {
             const cookieStore = this.context.cookies();
-            return cookieStore.get?.(key)?.value;
-          } catch {
+            // Handle both sync and async cookies() calls
+            const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
+            const cookie = resolvedStore.get(key);
+            return cookie?.value || null;
+          } catch (error) {
+            if (this.options.debugMode) {
+              console.warn('Next.js cookies() access failed:', error);
+            }
             return null;
           }
         }
         return null;
       },
+
+      // Pre-extracted cookies object
       () => {
-        // Parse cookie header directly
+        if (this.context.cookiesObject && typeof this.context.cookiesObject === 'object') {
+          return this.context.cookiesObject[key] || null;
+        }
+        return null;
+      },
+
+      // Express-style req.cookies
+      () => {
+        return this.context.req?.cookies?.[key] || null;
+      },
+
+      // Direct cookie header parsing
+      () => {
         const cookieHeader = this.context.req?.headers?.cookie;
         if (cookieHeader) {
           const cookies = cookieHeader.split(';');
@@ -194,8 +216,13 @@ export class CookieManager implements StorageAdapter {
 
     for (const attempt of attempts) {
       try {
-        const value = attempt();
-        if (value) return value;
+        const value = await attempt();
+        if (value) {
+          if (this.options.debugMode) {
+            console.log(`Server cookie found: ${key}`);
+          }
+          return value;
+        }
       } catch (error) {
         if (this.options.debugMode) {
           console.warn(`Cookie access attempt failed:`, error);
@@ -207,10 +234,7 @@ export class CookieManager implements StorageAdapter {
   }
 
   private setServerCookie(key: string, value: string): void {
-    if (!this.context.res) return;
-
     const cookieOptions: any = {
-      maxAge: this.options.maxAge ? this.options.maxAge * 1000 : undefined,
       secure: this.options.secure,
       sameSite: this.options.sameSite,
       path: this.options.path,
@@ -218,37 +242,163 @@ export class CookieManager implements StorageAdapter {
       httpOnly: this.options.httpOnly,
     };
 
+    // Convert maxAge from seconds to milliseconds for some APIs
+    if (this.options.maxAge) {
+      cookieOptions.maxAge = this.options.maxAge;
+    }
+
     // Remove undefined values
-    Object.keys(cookieOptions).forEach((key) => {
-      if (cookieOptions[key] === undefined) {
-        delete cookieOptions[key];
+    Object.keys(cookieOptions).forEach((k) => {
+      if (cookieOptions[k] === undefined) {
+        delete cookieOptions[k];
       }
     });
 
-    if (this.context.res.cookie) {
-      this.context.res.cookie(key, value, cookieOptions);
-    } else if (this.context.res.setHeader) {
-      const cookieString = this.buildCookieString(key, value, cookieOptions);
-      this.context.res.setHeader('Set-Cookie', cookieString);
+    let success = false;
+
+    // Try Next.js cookies() API first
+    if (this.context.cookies && typeof this.context.cookies === 'function') {
+      try {
+        const cookieStore = this.context.cookies();
+        if (cookieStore.set && typeof cookieStore.set === 'function') {
+          cookieStore.set(key, value, cookieOptions);
+          success = true;
+          if (this.options.debugMode) {
+            console.log(`Cookie set via Next.js API: ${key}`);
+          }
+        }
+      } catch (error) {
+        if (this.options.debugMode) {
+          console.warn('Next.js cookie setting failed:', error);
+        }
+      }
+    }
+
+    // Try custom cookie setter
+    if (!success && this.context.cookieSetter && typeof this.context.cookieSetter === 'function') {
+      try {
+        this.context.cookieSetter(key, value, cookieOptions);
+        success = true;
+        if (this.options.debugMode) {
+          console.log(`Cookie set via custom setter: ${key}`);
+        }
+      } catch {
+        if (this.options.debugMode) {
+          console.warn('Custom cookie setter failed');
+        }
+      }
+    }
+
+    // Try Express-style res.cookie
+    if (!success && this.context.res?.cookie && typeof this.context.res.cookie === 'function') {
+      try {
+        // Express expects maxAge in milliseconds
+        const expressOptions = { ...cookieOptions };
+        if (expressOptions.maxAge) {
+          expressOptions.maxAge = expressOptions.maxAge * 1000;
+        }
+        this.context.res.cookie(key, value, expressOptions);
+        success = true;
+        if (this.options.debugMode) {
+          console.log(`Cookie set via Express: ${key}`);
+        }
+      } catch {
+        if (this.options.debugMode) {
+          console.warn('Express cookie setting failed');
+        }
+      }
+    }
+
+    // Try Node.js native setHeader as last resort
+    if (
+      !success &&
+      this.context.res?.setHeader &&
+      typeof this.context.res.setHeader === 'function'
+    ) {
+      try {
+        const cookieString = this.buildCookieString(key, value, cookieOptions);
+        const existingCookies = this.context.res.getHeader('Set-Cookie') || [];
+        const cookies = Array.isArray(existingCookies) ? existingCookies : [existingCookies];
+        cookies.push(cookieString);
+        this.context.res.setHeader('Set-Cookie', cookies);
+        success = true;
+        if (this.options.debugMode) {
+          console.log(`Cookie set via setHeader: ${key}`);
+        }
+      } catch {
+        if (this.options.debugMode) {
+          console.warn('SetHeader cookie setting failed');
+        }
+      }
+    }
+
+    if (!success && this.options.debugMode) {
+      console.warn(`Failed to set server cookie: ${key} - no valid context found`);
     }
   }
 
   private removeServerCookie(key: string): void {
-    if (!this.context.res) return;
-
     const expiredOptions = {
       ...this.options,
       expires: new Date(0),
+      maxAge: 0,
     };
 
-    if (this.context.res.clearCookie) {
-      this.context.res.clearCookie(key, expiredOptions);
-    } else if (this.context.res.setHeader) {
-      const cookieString = this.buildCookieString(key, '', {
-        ...expiredOptions,
-        expires: new Date(0),
-      });
-      this.context.res.setHeader('Set-Cookie', cookieString);
+    // Try all the same methods as setServerCookie but with expired options
+    let success = false;
+
+    if (this.context.cookies && typeof this.context.cookies === 'function') {
+      try {
+        const cookieStore = this.context.cookies();
+        if (cookieStore.delete && typeof cookieStore.delete === 'function') {
+          cookieStore.delete(key);
+          success = true;
+        } else if (cookieStore.set && typeof cookieStore.set === 'function') {
+          cookieStore.set(key, '', expiredOptions);
+          success = true;
+        }
+      } catch {
+        // Continue to next method
+      }
+    }
+
+    if (!success && this.context.cookieSetter && typeof this.context.cookieSetter === 'function') {
+      try {
+        this.context.cookieSetter(key, '', expiredOptions);
+        success = true;
+      } catch {
+        // Continue to next method
+      }
+    }
+
+    if (
+      !success &&
+      this.context.res?.clearCookie &&
+      typeof this.context.res.clearCookie === 'function'
+    ) {
+      try {
+        this.context.res.clearCookie(key, expiredOptions);
+        success = true;
+      } catch {
+        // Continue to next method
+      }
+    }
+
+    if (
+      !success &&
+      this.context.res?.setHeader &&
+      typeof this.context.res.setHeader === 'function'
+    ) {
+      try {
+        const cookieString = this.buildCookieString(key, '', expiredOptions);
+        const existingCookies = this.context.res.getHeader('Set-Cookie') || [];
+        const cookies = Array.isArray(existingCookies) ? existingCookies : [existingCookies];
+        cookies.push(cookieString);
+        this.context.res.setHeader('Set-Cookie', cookies);
+        success = true;
+      } catch {
+        // Final attempt failed
+      }
     }
   }
 
@@ -258,8 +408,8 @@ export class CookieManager implements StorageAdapter {
     if (options.expires) {
       cookieString += `; Expires=${options.expires.toUTCString()}`;
     }
-    if (options.maxAge) {
-      cookieString += `; Max-Age=${Math.floor(options.maxAge / 1000)}`;
+    if (options.maxAge && options.maxAge > 0) {
+      cookieString += `; Max-Age=${options.maxAge}`;
     }
     if (options.path) {
       cookieString += `; Path=${options.path}`;
