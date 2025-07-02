@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- improve Next.js cookie handling and add middleware support (79bed59)
+
 ## [1.0.1] - 2025-06-30
 
 ### Features
