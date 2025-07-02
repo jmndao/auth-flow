@@ -3,11 +3,11 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
 
 # Build outputs
 dist/
 build/
+coverage/
 *.tsbuildinfo
 
 # Environment variables
@@ -17,12 +17,7 @@ build/
 .env.test.local
 .env.production.local
 
-# Testing
-coverage/
-.nyc_output
-*.lcov
-
-# IDEs and editors
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
@@ -63,27 +58,23 @@ pids
 # Yarn Integrity file
 .yarn-integrity
 
-# parcel-bundler cache (https://parceljs.org/)
-.cache
-.parcel-cache
+# Testing
+coverage/
+.nyc_output/
+junit.xml
 
-# next.js build output
-.next
+# Rollup cache
+.rollup.cache/
 
-# nuxt.js build output
-.nuxt
+# Temporary folders
+tmp/
+temp/
 
-# vuepress build output
-.vuepress/dist
+# Package-lock (if using yarn)
+# package-lock.json
 
-# Serverless directories
-.serverless
+# Documentation build
+docs/generated/
 
-# FuseBox cache
-.fusebox/
-
-# DynamoDB Local files
-.dynamodb/
-
-# TernJS port file
-.tern-port
+# Benchmark results
+benchmark-results/

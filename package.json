@@ -1,36 +1,44 @@
 {
   "name": "@jmndao/auth-flow",
-  "version": "1.1.1",
-  "description": "Universal authentication client for modern JavaScript applications",
+  "version": "2.0.0",
+  "description": "Universal authentication client with production-ready features: caching, monitoring, security, resilience, and more",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "rollup -c",
     "build:watch": "rollup -c -w",
+    "build:v2": "rollup -c rollup.config.v2.mjs",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:ci": "jest --coverage --watchAll=false --passWithNoTests",
+    "test:v2": "jest --testPathPattern=v2",
     "type-check": "tsc --noEmit",
+    "type-check:v2": "tsc --noEmit -p tsconfig.v2.json",
     "lint": "eslint . --ext .ts,.tsx --ignore-path .gitignore",
     "lint:fix": "eslint . --ext .ts,.tsx --fix --ignore-path .gitignore",
     "format": "prettier --write **/*.{ts,tsx,js,json,md}",
     "format:check": "prettier --check **/*.{ts,tsx,js,json,md}",
     "dev": "rollup -c -w",
+    "dev:v2": "rollup -c rollup.config.v2.mjs -w",
     "pretest": "npm run type-check && npm run lint",
-    "prepublishOnly": "npm run clean && npm run pretest && npm run test:ci && npm run build",
+    "prepublishOnly": "npm run clean && npm run pretest && npm run test:ci && npm run build && npm run build:v2",
     "clean": "rimraf dist coverage",
     "changelog": "node scripts/changelog.js",
     "version": "node scripts/version.js && git add .",
     "release:patch": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version patch && npm publish && git push --follow-tags",
     "release:minor": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version minor && npm publish && git push --follow-tags",
-    "release:major": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version major && npm publish && git push --follow-tags"
+    "release:major": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version major && npm publish && git push --follow-tags",
+    "benchmark": "node scripts/benchmark.js",
+    "docs": "typedoc --out docs src/index.ts",
+    "docs:v2": "typedoc --out docs/v2 src/index-v2.ts"
   },
   "keywords": [
     "authentication",
@@ -47,7 +55,17 @@
     "universal",
     "client",
     "server",
-    "middleware"
+    "middleware",
+    "caching",
+    "performance",
+    "monitoring",
+    "security",
+    "resilience",
+    "circuit-breaker",
+    "retry",
+    "health-check",
+    "production-ready",
+    "enterprise"
   ],
   "author": {
     "name": "jmndao",
@@ -87,20 +105,56 @@
     "rollup": "^4.0.0",
     "rollup-plugin-terser": "^7.0.0",
     "ts-jest": "^29.1.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "typedoc": "^0.25.0"
   },
   "peerDependencies": {
     "axios": ">=1.0.0"
+  },
+  "optionalDependencies": {
+    "crypto-js": "^4.2.0"
   },
   "exports": {
     ".": {
       "import": "./dist/index.esm.js",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./v2": {
+      "import": "./dist/index-v2.esm.js",
+      "require": "./dist/index-v2.js",
+      "types": "./dist/index-v2.d.ts"
+    },
+    "./testing": {
+      "import": "./dist/testing.esm.js",
+      "require": "./dist/testing.js",
+      "types": "./dist/testing.d.ts"
     }
   },
   "sideEffects": false,
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/jmndao"
+  },
+  "badges": {
+    "npm": "https://img.shields.io/npm/v/@jmndao/auth-flow",
+    "downloads": "https://img.shields.io/npm/dm/@jmndao/auth-flow",
+    "license": "https://img.shields.io/npm/l/@jmndao/auth-flow",
+    "build": "https://img.shields.io/github/actions/workflow/status/jmndao/auth-flow/ci.yml",
+    "coverage": "https://img.shields.io/codecov/c/github/jmndao/auth-flow"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead",
+    "not ie <= 11"
+  ]
 }

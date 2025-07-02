@@ -1,16 +1,28 @@
-# AuthFlow
+# AuthFlow v2.0
 
-A universal authentication client for modern JavaScript applications with seamless token management, automatic refresh, and cookie timing issue resolution.
+Universal authentication client with production-ready features: caching, monitoring, security, resilience, and more.
 
-## Features
+[![npm version](https://img.shields.io/npm/v/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
+[![downloads](https://img.shields.io/npm/dm/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
+[![license](https://img.shields.io/npm/l/@jmndao/auth-flow)](https://github.com/jmndao/auth-flow/blob/main/LICENSE)
+[![build status](https://img.shields.io/github/actions/workflow/status/jmndao/auth-flow/ci.yml)](https://github.com/jmndao/auth-flow/actions)
+[![coverage](https://img.shields.io/codecov/c/github/jmndao/auth-flow)](https://codecov.io/gh/jmndao/auth-flow)
 
-- **Universal Compatibility**: Works in browser, Node.js, and SSR environments
-- **Cookie Timing Fix**: Solves cookie propagation delays with retry logic and fallbacks
-- **Single Token Support**: Works with APIs that only provide access tokens
-- **Automatic Token Refresh**: Handles expiration and refresh automatically
-- **Request Queuing**: Prevents race conditions during token refresh
-- **Smart Storage**: Auto-selects optimal storage (localStorage, cookies, memory)
-- **TypeScript Support**: Full type definitions included
+## What's New in v2.0
+
+AuthFlow v2.0 transforms the library from a basic authentication client into a comprehensive, production-ready solution with enterprise-grade features.
+
+### Key Features
+
+- **Zero Breaking Changes** - Full backward compatibility with v1.x
+- **Request Caching** - Intelligent caching with LRU eviction and configurable strategies
+- **Request Deduplication** - Automatic consolidation of identical concurrent requests
+- **Performance Monitoring** - Real-time metrics with P95/P99 percentiles and aggregation
+- **Circuit Breaker Pattern** - Prevents cascade failures with automatic recovery
+- **Enhanced Security** - Token encryption, CSRF protection, request signing
+- **Advanced Retry Logic** - Exponential backoff with jitter and conditional retry strategies
+- **Health Monitoring** - Continuous API health checks with status change notifications
+- **Production Presets** - One-line configurations for common scenarios
 
 ## Installation
 
@@ -20,7 +32,7 @@ npm install @jmndao/auth-flow
 
 ## Quick Start
 
-### Minimal Setup
+### Basic Setup (v1.x Compatible)
 
 ```typescript
 import { createAuthFlow } from '@jmndao/auth-flow';
@@ -28,197 +40,381 @@ import { createAuthFlow } from '@jmndao/auth-flow';
 const auth = createAuthFlow('https://api.example.com');
 
 // Login
-const user = await auth.login({
-  username: 'user@example.com',
-  password: 'password',
-});
+const user = await auth.login({ email: 'user@example.com', password: 'password' });
 
 // Make authenticated requests
-const data = await auth.get('/protected-resource');
+const data = await auth.get('/api/profile');
 ```
 
-### Cookie-Based Auth (Fixes Cookie Timing Issues)
+### Production-Ready Setup (v2.0)
 
 ```typescript
-const auth = createAuthFlow({
+import { createProductionAuthFlow } from '@jmndao/auth-flow/v2';
+
+const auth = createProductionAuthFlow('https://api.example.com');
+
+// All v2.0 features enabled automatically
+const user = await auth.login({ email: 'user@example.com', password: 'password' });
+const data = await auth.get('/api/profile'); // Cached, monitored, resilient
+```
+
+## Configuration Presets
+
+AuthFlow v2.0 includes predefined configurations for common scenarios:
+
+```typescript
+import { createAuthFlowWithPreset } from '@jmndao/auth-flow/v2';
+
+// High-performance configuration with aggressive caching
+const performantAuth = createAuthFlowWithPreset('performance', 'https://api.example.com');
+
+// Security-focused configuration with all protections enabled
+const secureAuth = createAuthFlowWithPreset('security', 'https://api.example.com');
+
+// Resilient configuration for unreliable networks
+const resilientAuth = createAuthFlowWithPreset('resilient', 'https://api.example.com');
+
+// Development configuration with debugging enabled
+const devAuth = createAuthFlowWithPreset('development', 'https://api.example.com');
+
+// Production configuration with monitoring and security
+const prodAuth = createAuthFlowWithPreset('production', 'https://api.example.com');
+
+// Minimal configuration for simple use cases
+const minimalAuth = createAuthFlowWithPreset('minimal', 'https://api.example.com');
+```
+
+## Custom Configuration
+
+```typescript
+import { createAuthFlowV2 } from '@jmndao/auth-flow/v2';
+
+const auth = createAuthFlowV2({
   baseURL: 'https://api.example.com',
-  tokenSource: 'cookies',
-  storage: {
-    type: 'cookies',
-    options: {
-      waitForCookies: 500, // Wait for cookie propagation
-      fallbackToBody: true, // Use response body as fallback
-      retryCount: 3, // Retry cookie reads
-      debugMode: false, // Enable for troubleshooting
+
+  // Caching configuration
+  caching: {
+    enabled: true,
+    defaultTTL: 300000, // 5 minutes
+    maxSize: 100,
+    strategies: new Map([
+      ['/api/users/*', { ttl: 600000 }], // 10 minutes for user data
+      ['/api/static/*', { ttl: 3600000 }], // 1 hour for static data
+    ]),
+  },
+
+  // Performance monitoring
+  monitoring: {
+    enabled: true,
+    sampleRate: 0.1, // 10% sampling
+    aggregationInterval: 60000, // 1 minute
+  },
+
+  // Security features
+  security: {
+    encryptTokens: true,
+    encryptionKey: 'your-encryption-key',
+    csrf: {
+      enabled: true,
+      tokenEndpoint: '/api/csrf-token',
+    },
+    requestSigning: {
+      enabled: true,
+      secretKey: 'your-signing-key',
     },
   },
-});
-```
 
-### Single Token Auth (No Refresh Token)
+  // Retry configuration
+  retry: {
+    attempts: 3,
+    delay: 1000,
+    strategy: 'exponential-jitter',
+    conditions: ['network', '5xx', 'timeout'],
+  },
 
-```typescript
-import { createSingleTokenAuth } from '@jmndao/auth-flow';
+  // Circuit breaker
+  circuitBreaker: {
+    threshold: 5,
+    resetTimeout: 60000,
+  },
 
-const auth = createSingleTokenAuth({
-  baseURL: 'https://api.example.com',
-  token: { access: 'accessToken' },
-  endpoints: { login: 'auth/login' },
-  sessionManagement: {
-    renewBeforeExpiry: 300, // Renew 5 min before expiry
-    persistCredentials: true, // Auto-renew using stored credentials
+  // Health monitoring
+  health: {
+    enabled: true,
+    interval: 30000,
+    endpoint: '/health',
   },
 });
-```
-
-## Configuration
-
-### Default Settings
-
-AuthFlow provides smart defaults requiring minimal configuration:
-
-```typescript
-// Default endpoints
-{
-  login: '/api/auth/login',
-  refresh: '/api/auth/refresh',
-  logout: '/api/auth/logout'
-}
-
-// Default token names
-{
-  access: 'accessToken',
-  refresh: 'refreshToken'
-}
-
-// Other defaults
-{
-  tokenSource: 'body',
-  storage: 'auto',
-  timeout: 10000,
-  retry: { attempts: 3, delay: 1000 }
-}
-```
-
-### Common Configurations
-
-```typescript
-// Basic setup with custom endpoints
-const auth = createAuthFlow({
-  baseURL: 'https://api.example.com',
-  endpoints: {
-    login: '/auth/signin',
-    refresh: '/auth/refresh-token',
-  },
-  tokens: {
-    access: 'access_token',
-    refresh: 'refresh_token',
-  },
-});
-
-// Server-side with cookies
-const auth = createAuthFlow(
-  {
-    baseURL: 'https://api.example.com',
-    tokenSource: 'cookies',
-    storage: 'cookies',
-    environment: 'server',
-  },
-  { req, res }
-);
-```
-
-## Framework Examples
-
-### React
-
-```typescript
-const auth = createAuthFlow('https://api.example.com');
-
-function useAuth() {
-  const [user, setUser] = useState(null);
-
-  const login = async (credentials) => {
-    const userData = await auth.login(credentials);
-    setUser(userData);
-  };
-
-  return { user, login };
-}
-```
-
-### Next.js Server-Side
-
-```typescript
-// API route
-export default async function handler(req, res) {
-  const auth = createAuthFlow('https://api.example.com', { req, res });
-
-  if (!(await auth.hasValidTokens())) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  const data = await auth.get('/protected-data');
-  res.json(data.data);
-}
-```
-
-### Express Middleware
-
-```typescript
-const authMiddleware = async (req, res, next) => {
-  const auth = createAuthFlow(
-    {
-      baseURL: 'https://api.example.com',
-      storage: 'cookies',
-    },
-    { req, res }
-  );
-
-  if (await auth.hasValidTokens()) {
-    req.auth = auth;
-    next();
-  } else {
-    res.status(401).json({ error: 'Unauthorized' });
-  }
-};
 ```
 
 ## API Reference
 
 ### Authentication Methods
 
-- `login<TUser>(credentials): Promise<TUser>` - Authenticate and store tokens
-- `logout(): Promise<void>` - Clear tokens and logout
-- `isAuthenticated(): boolean` - Check if authenticated (sync)
-- `hasValidTokens(): Promise<boolean>` - Validate tokens (async)
+```typescript
+// Login with credentials
+const user = await auth.login({ email: 'user@example.com', password: 'password' });
+
+// Logout
+await auth.logout();
+
+// Check authentication status
+const isAuth = auth.isAuthenticated();
+
+// Token management
+const tokens = await auth.getTokens();
+await auth.setTokens({ accessToken: 'token', refreshToken: 'refresh' });
+await auth.clearTokens();
+```
 
 ### HTTP Methods
 
-- `get<T>(url, config?): Promise<Response<T>>`
-- `post<T>(url, data?, config?): Promise<Response<T>>`
-- `put<T>(url, data?, config?): Promise<Response<T>>`
-- `patch<T>(url, data?, config?): Promise<Response<T>>`
-- `delete<T>(url, config?): Promise<Response<T>>`
+```typescript
+// GET request
+const data = await auth.get('/api/users');
 
-### Token Management
+// POST request
+const newUser = await auth.post('/api/users', { name: 'John Doe' });
 
-- `getTokens(): Promise<TokenPair | null>` - Get stored tokens
-- `setTokens(tokens): Promise<void>` - Store token pair
-- `clearTokens(): Promise<void>` - Remove all tokens
+// PUT request
+const updatedUser = await auth.put('/api/users/1', { name: 'Jane Doe' });
 
-## Browser Support
+// PATCH request
+const patchedUser = await auth.patch('/api/users/1', { status: 'active' });
 
-- Chrome 60+, Firefox 55+, Safari 12+, Edge 79+
-- Node.js 16+
+// DELETE request
+await auth.delete('/api/users/1');
+```
+
+### Performance Monitoring
+
+```typescript
+// Get performance metrics
+const metrics = auth.getPerformanceMetrics();
+console.log({
+  totalRequests: metrics.totalRequests,
+  averageResponseTime: metrics.averageResponseTime,
+  successRate: metrics.successRate,
+  cacheHitRate: metrics.cacheHitRate,
+});
+
+// Clear metrics
+auth.clearPerformanceMetrics();
+```
+
+### Cache Management
+
+```typescript
+// Get cache statistics
+const cacheStats = auth.getCacheStats();
+
+// Clear cache
+auth.clearCache();
+
+// Clear cache by pattern
+auth.clearCache('/api/users/*');
+```
+
+### Health Monitoring
+
+```typescript
+// Get health status
+const healthStatus = auth.getHealthStatus();
+
+// Perform immediate health check
+const health = await auth.checkHealth();
+```
+
+### Circuit Breaker
+
+```typescript
+// Get circuit breaker statistics
+const cbStats = auth.getCircuitBreakerStats();
+
+// Reset circuit breaker
+auth.resetCircuitBreaker();
+```
+
+### Debug Information
+
+```typescript
+// Get comprehensive debug information
+const debugInfo = auth.getDebugInfo();
+console.log({
+  config: debugInfo.config,
+  authState: debugInfo.authState,
+  performance: debugInfo.performance,
+  health: debugInfo.health,
+  features: debugInfo.features,
+});
+```
+
+## Migration from v1.x
+
+No code changes required! Your existing v1.x code works exactly the same:
+
+```typescript
+// v1.x code (still works)
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  tokenSource: 'cookies',
+});
+
+// Upgrade to v2.x (gradual)
+const auth = createAuthFlowV2({
+  baseURL: 'https://api.example.com',
+  tokenSource: 'cookies',
+  // Add v2.0 features
+  caching: { enabled: true },
+  monitoring: { enabled: true },
+});
+```
+
+## Framework Integration
+
+### Next.js
+
+```typescript
+// pages/api/auth/[...nextauth].ts
+import { createAuthFlow } from '@jmndao/auth-flow';
+
+export default function handler(req, res) {
+  const auth = createAuthFlow(
+    {
+      baseURL: process.env.API_URL,
+      tokenSource: 'cookies',
+      storage: {
+        type: 'cookies',
+        options: {
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+        },
+      },
+    },
+    { req, res }
+  );
+
+  // Handle authentication
+}
+```
+
+### React
+
+```typescript
+// hooks/useAuth.ts
+import { createAuthFlowV2 } from '@jmndao/auth-flow/v2';
+import { useEffect, useState } from 'react';
+
+export function useAuth() {
+  const [auth] = useState(() => createAuthFlowV2('https://api.example.com'));
+
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    setIsAuthenticated(auth.isAuthenticated());
+  }, [auth]);
+
+  return { auth, isAuthenticated };
+}
+```
+
+### Vue
+
+```typescript
+// composables/useAuth.ts
+import { createAuthFlowV2 } from '@jmndao/auth-flow/v2';
+import { ref, onMounted } from 'vue';
+
+export function useAuth() {
+  const auth = createAuthFlowV2('https://api.example.com');
+  const isAuthenticated = ref(false);
+
+  onMounted(() => {
+    isAuthenticated.value = auth.isAuthenticated();
+  });
+
+  return { auth, isAuthenticated };
+}
+```
+
+## Environment Support
+
+AuthFlow works in all JavaScript environments:
+
+- **Browser** - localStorage, cookies, memory storage
+- **Node.js** - Memory storage, file system
+- **React Native** - AsyncStorage support
+- **Server-Side Rendering** - Next.js, Nuxt.js compatible
+
+## Error Handling
+
+```typescript
+try {
+  const user = await auth.login(credentials);
+} catch (error) {
+  if (error.status === 401) {
+    console.log('Invalid credentials');
+  } else if (error.status === 0) {
+    console.log('Network error');
+  } else {
+    console.log('Server error:', error.message);
+  }
+}
+```
+
+## TypeScript Support
+
+AuthFlow is written in TypeScript and includes comprehensive type definitions:
+
+```typescript
+import type {
+  AuthFlowV2Client,
+  AuthFlowV2Config,
+  TokenPair,
+  LoginResponse,
+} from '@jmndao/auth-flow/v2';
+
+const auth: AuthFlowV2Client = createAuthFlowV2(config);
+const tokens: TokenPair = await auth.getTokens();
+```
+
+## Testing
+
+```typescript
+import { mockAuthClient } from '@jmndao/auth-flow/testing';
+
+// Create mock client for testing
+const mockAuth = mockAuthClient({
+  isAuthenticated: true,
+  user: { id: 1, name: 'Test User' },
+});
+
+// Use in tests
+expect(mockAuth.isAuthenticated()).toBe(true);
 
 ## Documentation
 
-- [Complete API Reference](docs/api-reference.md)
-- [Configuration Guide](docs/configuration.md)
-- [Framework Examples](docs/examples.md)
-- [Advanced Usage](docs/advanced.md)
+- **[Quick Start Guide](./docs/quick-start-guide.md)** - Get up and running in minutes
+- **[API Reference](./docs/api-reference.md)** - Complete method documentation
+- **[Migration Guide](./docs/migration-guide.md)** - Upgrade from v1.x to v2.x
+- **[Examples & Use Cases](./docs/examples.md)** - Real-world code examples
+- **[Troubleshooting](./docs/troubleshooting.md)** - Common issues and solutions
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Support
+
+- [Documentation](https://github.com/jmndao/auth-flow/tree/main/docs)
+- [GitHub Issues](https://github.com/jmndao/auth-flow/issues)
+- [Discussions](https://github.com/jmndao/auth-flow/discussions)
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and breaking changes.
+```
