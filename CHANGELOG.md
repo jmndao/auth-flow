@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- add proper TypeScript declarations for middleware module (02560d7)
+
 ## [2.0.2] - 2025-07-02
 
 ### Bug Fixes
