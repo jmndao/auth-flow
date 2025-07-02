@@ -8,6 +8,6 @@
     "module": "ESNext",
     "target": "ES2020"
   },
-  "include": ["middleware/**/*"],
+  "include": ["middleware/**/*", "types/**/*"],
   "exclude": ["node_modules", "dist", "tests", "coverage"]
 }

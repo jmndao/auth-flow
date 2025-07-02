@@ -5,20 +5,8 @@
  * for various frameworks (Next.js, Express, etc.)
  */
 
-export interface TokenValidationResult {
-  isValid: boolean;
-  token?: string;
-  payload?: any;
-  error?: string;
-}
-
-export interface MiddlewareConfig {
-  tokenName: string;
-  redirectUrl?: string;
-  publicPaths?: string[];
-  protectedPaths?: string[];
-  skipValidation?: (path: string) => boolean;
-}
+import { AuthCheckResult, MiddlewareConfig, TokenValidationResult } from '../types/middleware';
+export type { TokenValidationResult, MiddlewareConfig, AuthCheckResult } from '../types/middleware';
 
 /**
  * Lightweight JWT token validation for middleware
@@ -174,7 +162,7 @@ export function createExpressMiddleware(config: MiddlewareConfig) {
 export async function checkServerAuth(
   cookieStore: any,
   tokenName: string
-): Promise<{ isAuthenticated: boolean; user?: any; error?: string }> {
+): Promise<AuthCheckResult> {
   try {
     const token = cookieStore.get?.(tokenName)?.value || cookieStore[tokenName];
 
