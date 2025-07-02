@@ -124,11 +124,6 @@
       "import": "./dist/index-v2.esm.js",
       "require": "./dist/index-v2.js",
       "types": "./dist/index-v2.d.ts"
-    },
-    "./testing": {
-      "import": "./dist/testing.esm.js",
-      "require": "./dist/testing.js",
-      "types": "./dist/testing.d.ts"
     }
   },
   "sideEffects": false,
