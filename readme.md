@@ -391,6 +391,7 @@ const mockAuth = mockAuthClient({
 
 // Use in tests
 expect(mockAuth.isAuthenticated()).toBe(true);
+```
 
 ## Documentation
 
