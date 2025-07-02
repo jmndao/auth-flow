@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- update homepage URL in package.json (54fa057)
+
 ## [2.0.3] - 2025-07-02
 
 ### Bug Fixes
