@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- update types path for middleware export in package.json (f980c2f)
+
 ## [2.0.4] - 2025-07-02
 
 ### Bug Fixes
