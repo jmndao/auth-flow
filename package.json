@@ -1,6 +1,6 @@
 {
   "name": "@jmndao/auth-flow",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "Universal authentication client with production-ready features: caching, monitoring, security, resilience, and more",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
@@ -126,7 +126,7 @@
     "crypto-js": "^4.2.0"
   },
   "exports": {
-     ".": {
+    ".": {
       "import": "./dist/index.esm.js",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
