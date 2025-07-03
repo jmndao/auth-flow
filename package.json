@@ -126,7 +126,7 @@
     "crypto-js": "^4.2.0"
   },
   "exports": {
-    ".": {
+     ".": {
       "import": "./dist/index.esm.js",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
@@ -139,7 +139,7 @@
     "./middleware": {
       "import": "./dist/middleware.esm.js",
       "require": "./dist/middleware.js",
-      "types": "./dist/middleware.d.ts"
+      "types": "./dist/middleware/index.d.ts"
     }
   },
   "sideEffects": false,
