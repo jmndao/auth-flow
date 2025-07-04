@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Code Refactoring
+
+- enhance cookie handling and error reporting in CookieStorageAdapter and ContextDetector (96875ce)
+
 ## [2.0.13] - 2025-07-04
 
 ### Code Refactoring
