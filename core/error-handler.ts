@@ -1,5 +1,9 @@
 import type { AuthError } from '../types';
 
+/**
+ * Simplified error handler with clean error normalization and handling
+ * Focuses on essential error processing without complex retry logic
+ */
 export class ErrorHandler {
   private onAuthError?: (error: AuthError) => void;
   private retryAttempts: number;
@@ -15,10 +19,13 @@ export class ErrorHandler {
     this.retryDelay = retryDelay;
   }
 
+  /**
+   * Handle and normalize errors
+   */
   handleError(error: any): AuthError {
     const authError = this.normalizeError(error);
 
-    // Call error callback for auth errors
+    // Call error callback for authentication errors
     if (this.onAuthError && this.isAuthenticationError(authError)) {
       try {
         this.onAuthError(authError);
@@ -30,6 +37,9 @@ export class ErrorHandler {
     return authError;
   }
 
+  /**
+   * Normalize error to consistent AuthError format
+   */
   private normalizeError(error: any): AuthError {
     // Handle axios-style errors
     if (error.response) {
@@ -60,10 +70,16 @@ export class ErrorHandler {
     };
   }
 
+  /**
+   * Check if error is authentication related
+   */
   isAuthenticationError(error: AuthError): boolean {
     return error.status === 401 || error.status === 403;
   }
 
+  /**
+   * Check if error indicates token expiration
+   */
   isTokenExpiredError(error: AuthError): boolean {
     const tokenExpiredMessages = [
       'token expired',
@@ -78,6 +94,9 @@ export class ErrorHandler {
     return error.status === 401 && tokenExpiredMessages.some((msg) => message.includes(msg));
   }
 
+  /**
+   * Check if error is refresh token related
+   */
   isRefreshTokenError(error: AuthError): boolean {
     const refreshTokenMessages = [
       'refresh token expired',
@@ -90,24 +109,16 @@ export class ErrorHandler {
     return error.status === 401 && refreshTokenMessages.some((msg) => message.includes(msg));
   }
 
+  /**
+   * Check if error is network related
+   */
   isNetworkError(error: AuthError): boolean {
     return error.status === 0 || error.code === 'NETWORK_ERROR';
   }
 
-  shouldRetry(error: AuthError, _attemptCount: number = 0): boolean {
-    // Don't retry auth errors
-    if (this.isAuthenticationError(error)) {
-      return false;
-    }
-
-    // Don't retry client errors (4xx except 401/403)
-    if (error.status >= 400 && error.status < 500) {
-      return false;
-    }
-
-    return false;
-  }
-
+  /**
+   * Execute operation with retry logic (simplified)
+   */
   async executeWithRetry<T>(
     operation: () => Promise<T>,
     maxAttempts: number = this.retryAttempts
@@ -120,28 +131,34 @@ export class ErrorHandler {
       } catch (error) {
         lastError = this.normalizeError(error);
 
-        // Don't retry if not retryable
-        if (!this.shouldRetry(lastError, attempt)) {
+        // Don't retry authentication errors
+        if (this.isAuthenticationError(lastError)) {
           throw lastError;
         }
 
-        // Wait before retrying (exponential backoff)
+        // Don't retry client errors (4xx except auth errors)
+        if (lastError.status >= 400 && lastError.status < 500) {
+          throw lastError;
+        }
+
+        // Wait before retrying
         if (attempt < maxAttempts - 1) {
-          const delay = this.retryDelay * Math.pow(2, attempt);
-          await this.sleep(delay);
+          await this.sleep(this.retryDelay * Math.pow(2, attempt));
         }
       }
     }
 
-    // If exhausted all retries, throw last error
     throw lastError!;
   }
 
+  /**
+   * Sleep utility
+   */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // Static utility methods
+  // Static error creation utilities
   static createAuthError(status: number, message: string, code?: string): AuthError {
     return {
       status,

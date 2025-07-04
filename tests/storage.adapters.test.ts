@@ -1,5 +1,25 @@
 import { MemoryStorageAdapter, CookieStorageAdapter, LocalStorageAdapter } from '../adapters';
 
+// Mock localStorage for testing
+const localStorageMock = {
+  getItem: jest.fn(),
+  setItem: jest.fn(),
+  removeItem: jest.fn(),
+  clear: jest.fn(),
+  __storage: {} as Record<string, string>,
+};
+
+// Setup localStorage mock
+Object.defineProperty(global, 'localStorage', {
+  value: localStorageMock,
+  writable: true,
+});
+
+Object.defineProperty(global, 'window', {
+  value: { localStorage: localStorageMock },
+  writable: true,
+});
+
 describe('Storage Adapters', () => {
   describe('MemoryStorageAdapter', () => {
     let adapter: MemoryStorageAdapter;
@@ -33,14 +53,8 @@ describe('Storage Adapters', () => {
   });
 
   describe('CookieStorageAdapter', () => {
-    let adapter: CookieStorageAdapter;
-
-    beforeEach(() => {
-      adapter = new CookieStorageAdapter();
-    });
-
     test('should handle cookie options', () => {
-      const adapterWithOptions = new CookieStorageAdapter(
+      const adapter = new CookieStorageAdapter(
         {},
         {
           secure: true,
@@ -49,14 +63,10 @@ describe('Storage Adapters', () => {
         }
       );
 
-      expect(adapterWithOptions).toBeInstanceOf(CookieStorageAdapter);
+      expect(adapter).toBeInstanceOf(CookieStorageAdapter);
     });
 
-    test('should handle server-side context', () => {
-      // Mock the server environment by setting window to undefined
-      const originalWindow = global.window;
-      delete (global as any).window;
-
+    test('should handle server-side context', async () => {
       const mockReq = {
         cookies: {
           testKey: 'testValue',
@@ -68,59 +78,64 @@ describe('Storage Adapters', () => {
         clearCookie: jest.fn(),
       };
 
+      // Mock server environment
+      delete (global as any).window;
+
       const serverAdapter = new CookieStorageAdapter(
         { req: mockReq, res: mockRes },
         { httpOnly: true }
       );
 
-      expect(serverAdapter.get('testKey')).toBe('testValue');
+      const result = await serverAdapter.get('testKey');
+      expect(result).toBe('testValue');
 
-      serverAdapter.set('newKey', 'newValue');
+      await serverAdapter.set('newKey', 'newValue');
       expect(mockRes.cookie).toHaveBeenCalledWith(
         'newKey',
         'newValue',
         expect.objectContaining({
           httpOnly: true,
-          secure: true,
+          secure: false, // NODE_ENV is not production in test
           sameSite: 'lax',
           path: '/',
         })
       );
 
       // Restore window
-      (global as any).window = originalWindow;
+      Object.defineProperty(global, 'window', {
+        value: { localStorage: localStorageMock },
+        writable: true,
+      });
     });
   });
 
   describe('LocalStorageAdapter', () => {
     let adapter: LocalStorageAdapter;
-    const mockLocalStorage = (global as any).localStorage;
 
     beforeEach(() => {
       // Reset localStorage mock
-      mockLocalStorage.clear();
-      mockLocalStorage.getItem.mockClear();
-      mockLocalStorage.setItem.mockClear();
-      mockLocalStorage.removeItem.mockClear();
+      localStorageMock.__storage = {};
+      localStorageMock.getItem.mockClear();
+      localStorageMock.setItem.mockClear();
+      localStorageMock.removeItem.mockClear();
+      localStorageMock.clear.mockClear();
 
       // Setup default behavior
-      mockLocalStorage.getItem.mockImplementation((key: string) => {
-        return mockLocalStorage.__storage[key] || null;
+      localStorageMock.getItem.mockImplementation((key: string) => {
+        return localStorageMock.__storage[key] || null;
       });
 
-      mockLocalStorage.setItem.mockImplementation((key: string, value: string) => {
-        mockLocalStorage.__storage[key] = value;
+      localStorageMock.setItem.mockImplementation((key: string, value: string) => {
+        localStorageMock.__storage[key] = value;
       });
 
-      mockLocalStorage.removeItem.mockImplementation((key: string) => {
-        delete mockLocalStorage.__storage[key];
+      localStorageMock.removeItem.mockImplementation((key: string) => {
+        delete localStorageMock.__storage[key];
       });
 
-      mockLocalStorage.clear.mockImplementation(() => {
-        mockLocalStorage.__storage = {};
+      localStorageMock.clear.mockImplementation(() => {
+        localStorageMock.__storage = {};
       });
-
-      mockLocalStorage.__storage = {};
 
       adapter = new LocalStorageAdapter();
     });
@@ -149,40 +164,42 @@ describe('Storage Adapters', () => {
     });
 
     test('should handle localStorage errors gracefully', () => {
-      // Mock localStorage to throw errors
-      mockLocalStorage.getItem.mockImplementation(() => {
+      // Mock console.error to suppress error logs during test
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      localStorageMock.getItem.mockImplementation(() => {
         throw new Error('localStorage error');
       });
 
-      mockLocalStorage.setItem.mockImplementation(() => {
+      localStorageMock.setItem.mockImplementation(() => {
         throw new Error('localStorage error');
       });
 
-      // Should not throw, should return null
       expect(adapter.get('testKey')).toBeNull();
-
-      // Should not throw
       expect(() => adapter.set('testKey', 'testValue')).not.toThrow();
+
+      consoleSpy.mockRestore();
     });
 
     test('should throw error when localStorage is not available', () => {
-      // Mock window.localStorage to be undefined
+      // Save original values
+      const originalWindow = (global as any).window;
       const originalLocalStorage = (global as any).localStorage;
+
+      // Remove window and localStorage completely
+      delete (global as any).window;
       delete (global as any).localStorage;
-      Object.defineProperty(global, 'localStorage', {
-        value: undefined,
-        writable: true,
-      });
+
+      // Set window to undefined to ensure typeof window === 'undefined'
+      (global as any).window = undefined;
 
       expect(() => new LocalStorageAdapter()).toThrow(
         'LocalStorage is not available in this environment'
       );
 
-      // Restore localStorage
-      Object.defineProperty(global, 'localStorage', {
-        value: originalLocalStorage,
-        writable: true,
-      });
+      // Restore original values
+      (global as any).window = originalWindow;
+      (global as any).localStorage = originalLocalStorage;
     });
   });
 });
