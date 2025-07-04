@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+- restore async cookie handling and CookieManager integration (62f03be)
+
 ## [2.0.15] - 2025-07-04
 
 ### Bug Fixes
