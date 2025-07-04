@@ -151,7 +151,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
         this.cookieManager.set(this.config.tokens.refresh, tokens.refreshToken);
       }
 
-      if (this.config.onTokenRefresh && this.config.debugMode) {
+      if (this.config.onTokenRefresh) {
         this.config.onTokenRefresh(tokens);
       }
 
@@ -384,7 +384,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
         this.cookieManager.setFallbackTokens(newTokens);
       }
 
-      if (this.config.onTokenRefresh && this.config.debugMode) {
+      if (this.config.onTokenRefresh) {
         this.config.onTokenRefresh(newTokens);
       }
     } catch (error) {
