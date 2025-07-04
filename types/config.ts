@@ -36,7 +36,6 @@ export interface RetryConfig {
   delay?: number;
 }
 
-// Input config - allows optional endpoints and tokens
 export interface AuthFlowConfig {
   environment?: Environment;
   endpoints?: EndpointsConfig;
@@ -46,12 +45,12 @@ export interface AuthFlowConfig {
   baseURL?: string;
   timeout?: number;
   retry?: RetryConfig;
+  debugMode?: boolean;
   onTokenRefresh?: (tokens: TokenPair) => void;
   onAuthError?: (error: AuthError) => void;
   onLogout?: () => void;
 }
 
-// Internal config - after validation, these are required
 export interface ValidatedAuthFlowConfig extends AuthFlowConfig {
   endpoints: EndpointsConfig;
   tokens: TokenConfig;

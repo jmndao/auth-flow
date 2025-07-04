@@ -8,7 +8,6 @@ export class ContextDetector {
    * Automatically detects the runtime context and provides appropriate cookie handling
    */
   static getAutoContext(): AuthContext {
-    // Return cached context if already detected
     if (this.detectionAttempted && this.cachedContext) {
       return this.cachedContext;
     }
@@ -16,14 +15,11 @@ export class ContextDetector {
     this.detectionAttempted = true;
     const context: AuthContext = {};
 
-    // Server-side context detection
     if (typeof window === 'undefined') {
-      // Try Next.js App Router
       context.cookies = this.detectNextJSCookies();
       context.headers = this.detectNextJSHeaders();
       context.cookieSetter = this.createNextJSCookieSetter();
 
-      // Try to detect other server frameworks
       if (!context.cookies) {
         this.detectExpressContext(context);
       }
@@ -38,15 +34,13 @@ export class ContextDetector {
    */
   private static detectNextJSCookies(): (() => any) | undefined {
     try {
-      // Try to dynamically import Next.js cookies
       const nextHeaders = require('next/headers');
       if (nextHeaders?.cookies && typeof nextHeaders.cookies === 'function') {
         return () => {
           try {
             return nextHeaders.cookies();
           } catch {
-            // cookies() called outside request context
-            console.warn('[AuthFlow] Next.js cookies() called outside request context');
+            console.warn('Next.js cookies() called outside request context');
             return null;
           }
         };
@@ -68,7 +62,7 @@ export class ContextDetector {
           try {
             return nextHeaders.headers();
           } catch {
-            console.warn('[AuthFlow] Next.js headers() called outside request context');
+            console.warn('Next.js headers() called outside request context');
             return null;
           }
         };
@@ -102,7 +96,7 @@ export class ContextDetector {
           });
         }
       } catch (error) {
-        console.warn(`[AuthFlow] Failed to set Next.js cookie ${name}:`, error);
+        console.warn(`Failed to set Next.js cookie ${name}:`, (error as Error).message);
       }
     };
   }
@@ -111,10 +105,7 @@ export class ContextDetector {
    * Detects Express.js or similar server context
    */
   private static detectExpressContext(context: AuthContext): void {
-    // This would be populated if user provides req/res
-    // For now, we'll detect from global context if available
     try {
-      // Check if we're in an Express-like environment
       if (global && (global as any).req && (global as any).res) {
         context.req = (global as any).req;
         context.res = (global as any).res;

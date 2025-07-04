@@ -8,11 +8,9 @@ import type { AuthContext } from './types/config';
 import { AuthFlowV2ClientImpl } from './core/authflow-v2-client';
 import { ContextDetector } from './core/context-detector';
 
-// Re-export v1.x functionality selectively to avoid conflicts
 export { createAuthFlow, createSingleTokenAuth } from './index';
 export type { TokenPair, AuthError, LoginCredentials, LoginResponse } from './index';
 
-// Export v2.0 types
 export type {
   AuthFlowV2Config,
   AuthFlowV2Client,
@@ -30,16 +28,11 @@ export type { CircuitBreakerConfig, HealthConfig } from './types/resilience';
 
 /**
  * Creates a new AuthFlow v2.0 client instance with automatic context detection
- *
- * @param config - v2.0 configuration object or base URL string
- * @param context - Server-side context (auto-detected if not provided)
- * @returns AuthFlow v2.0 client instance
  */
 export const createAuthFlowV2: CreateAuthFlowV2 = (
   config: string | Partial<AuthFlowV2Config>,
   context?: AuthContext
 ): AuthFlowV2Client => {
-  // Handle string configuration (simple base URL)
   const baseConfig: AuthFlowV2Config =
     typeof config === 'string'
       ? {
@@ -67,10 +60,8 @@ export const createAuthFlowV2: CreateAuthFlowV2 = (
           ...config,
         };
 
-  // Use provided context or auto-detect
   const finalContext = context || ContextDetector.getAutoContext();
 
-  // Debug logging for context detection
   if (baseConfig.debugMode || process.env.NODE_ENV !== 'production') {
     const envInfo = ContextDetector.getEnvironmentInfo();
     const contextInfo = {
@@ -82,8 +73,8 @@ export const createAuthFlowV2: CreateAuthFlowV2 = (
     };
 
     if (baseConfig.debugMode) {
-      console.debug('[AuthFlow] Detected environment:', envInfo);
-      console.debug('[AuthFlow] Context information:', contextInfo);
+      console.debug('Detected environment:', envInfo);
+      console.debug('Context information:', contextInfo);
     }
   }
 
@@ -94,24 +85,21 @@ export const createAuthFlowV2: CreateAuthFlowV2 = (
  * Predefined configuration presets for common scenarios
  */
 export const authFlowPresets: AuthFlowPresets = {
-  /**
-   * High-performance configuration with aggressive caching
-   */
   performance: {
     caching: {
       enabled: true,
-      defaultTTL: 600000, // 10 minutes
+      defaultTTL: 600000,
       maxSize: 200,
       strategies: new Map([
-        ['/user/profile', { ttl: 1800000 }], // 30 minutes
-        ['/settings/*', { ttl: 3600000 }], // 1 hour
-        ['/static/*', { ttl: 86400000 }], // 24 hours
+        ['/user/profile', { ttl: 1800000 }],
+        ['/settings/*', { ttl: 3600000 }],
+        ['/static/*', { ttl: 86400000 }],
       ]),
     },
     monitoring: {
       enabled: true,
-      sampleRate: 0.1, // 10% sampling for high traffic
-      aggregationInterval: 30000, // 30 seconds
+      sampleRate: 0.1,
+      aggregationInterval: 30000,
     },
     retry: {
       attempts: 2,
@@ -120,9 +108,6 @@ export const authFlowPresets: AuthFlowPresets = {
     },
   },
 
-  /**
-   * Security-focused configuration with all protections enabled
-   */
   security: {
     security: {
       encryptTokens: true,
@@ -137,17 +122,14 @@ export const authFlowPresets: AuthFlowPresets = {
       },
     },
     caching: {
-      enabled: false, // Disable caching for security
+      enabled: false,
     },
     monitoring: {
       enabled: true,
-      sampleRate: 1.0, // Full monitoring for security
+      sampleRate: 1.0,
     },
   },
 
-  /**
-   * Resilient configuration for unreliable networks
-   */
   resilient: {
     retry: {
       attempts: 5,
@@ -169,19 +151,16 @@ export const authFlowPresets: AuthFlowPresets = {
     timeout: 15000,
   },
 
-  /**
-   * Development configuration with debugging enabled
-   */
   development: {
     debugMode: true,
     caching: {
       enabled: true,
-      defaultTTL: 60000, // 1 minute for quick testing
+      defaultTTL: 60000,
     },
     monitoring: {
       enabled: true,
       sampleRate: 1.0,
-      aggregationInterval: 10000, // 10 seconds for quick feedback
+      aggregationInterval: 10000,
     },
     health: {
       enabled: true,
@@ -193,22 +172,19 @@ export const authFlowPresets: AuthFlowPresets = {
     },
   },
 
-  /**
-   * Production configuration with monitoring and security
-   */
   production: {
     caching: {
       enabled: true,
-      defaultTTL: 300000, // 5 minutes
+      defaultTTL: 300000,
       maxSize: 500,
     },
     monitoring: {
       enabled: true,
-      sampleRate: 0.05, // 5% sampling
+      sampleRate: 0.05,
       aggregationInterval: 60000,
     },
     security: {
-      encryptTokens: false, // Disable by default, require explicit key
+      encryptTokens: false,
       csrf: {
         enabled: true,
       },
@@ -227,9 +203,6 @@ export const authFlowPresets: AuthFlowPresets = {
     },
   },
 
-  /**
-   * Minimal configuration for simple use cases
-   */
   minimal: {
     caching: {
       enabled: false,
@@ -253,11 +226,6 @@ export const authFlowPresets: AuthFlowPresets = {
 
 /**
  * Quick preset application function
- *
- * @param preset - Preset name to apply
- * @param baseURL - Base URL for the API
- * @param overrides - Additional configuration overrides
- * @returns AuthFlow v2.0 client instance
  */
 export function createAuthFlowWithPreset(
   preset: keyof AuthFlowPresets,
@@ -282,10 +250,6 @@ export function createAuthFlowWithPreset(
 
   return createAuthFlowV2(config);
 }
-
-/**
- * Helper functions for common scenarios
- */
 
 /**
  * Creates a high-performance AuthFlow instance
@@ -388,7 +352,6 @@ export function generateSmartConfig(
       access: 'accessToken',
       refresh: 'refreshToken',
     },
-    // Smart defaults based on environment
     tokenSource: diagnosis.recommendations.tokenSource as 'body' | 'cookies',
     storage: {
       type: diagnosis.recommendations.storage as any,
@@ -434,7 +397,6 @@ export async function testAuthFlowFeatures(
   const errors: string[] = [];
 
   try {
-    // Test authentication if credentials provided
     if (testCredentials) {
       try {
         await client.login(testCredentials);
@@ -443,7 +405,6 @@ export async function testAuthFlowFeatures(
       }
     }
 
-    // Test health check
     let healthStatus;
     try {
       healthStatus = await client.checkHealth();
@@ -452,21 +413,16 @@ export async function testAuthFlowFeatures(
       healthStatus = { isHealthy: false };
     }
 
-    // Test cache
     try {
       await client.get('/test-endpoint');
-      await client.get('/test-endpoint'); // Should hit cache
+      await client.get('/test-endpoint');
     } catch (error) {
       errors.push(`Cache test failed: ${error}`);
     }
 
-    // Get performance metrics
     const performance = client.getPerformanceMetrics();
-
-    // Get feature status
     const debugInfo = client.getDebugInfo();
 
-    // Cleanup
     client.destroy();
 
     return {
@@ -492,7 +448,6 @@ export async function testAuthFlowFeatures(
 export function migrateV1ConfigToV2(v1Config: any): AuthFlowV2Config {
   return {
     ...v1Config,
-    // Add default endpoints and tokens if missing
     endpoints: v1Config.endpoints || {
       login: '/auth/login',
       refresh: '/auth/refresh',
@@ -502,7 +457,6 @@ export function migrateV1ConfigToV2(v1Config: any): AuthFlowV2Config {
       access: 'accessToken',
       refresh: 'refreshToken',
     },
-    // Enable basic v2.0 features
     caching: {
       enabled: true,
       defaultTTL: 300000,
@@ -510,7 +464,6 @@ export function migrateV1ConfigToV2(v1Config: any): AuthFlowV2Config {
     monitoring: {
       enabled: true,
     },
-    // Keep existing retry config but enhance it
     retry: {
       attempts: v1Config.retry?.attempts || 3,
       delay: v1Config.retry?.delay || 1000,
@@ -520,7 +473,6 @@ export function migrateV1ConfigToV2(v1Config: any): AuthFlowV2Config {
   };
 }
 
-// Default export for convenience
 export default {
   createAuthFlowV2,
   createAuthFlowWithPreset,

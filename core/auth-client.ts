@@ -49,7 +49,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
     this.context = context;
 
-    // Use cookie manager for cookie tokenSource
     if (this.config.tokenSource === 'cookies') {
       this.cookieManager = new CookieManager(this.context, {
         ...(typeof this.config.storage === 'object' ? this.config.storage.options : {}),
@@ -85,7 +84,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
   }
 
   private setupInterceptors(): void {
-    // Add token to requests
     this.axiosInstance.interceptors.request.use(
       async (config) => {
         const accessToken = await this.tokenManager.getAccessToken();
@@ -97,7 +95,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
       (error) => Promise.reject(error)
     );
 
-    // Handle token refresh
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       async (error) => {
@@ -134,15 +131,13 @@ export class AuthClient implements HttpMethod, AuthMethods {
     validateLoginCredentials(credentials);
 
     try {
-      const response = await axios.post(this.getFullUrl(this.config.endpoints.login), credentials, {
-        timeout: this.config.timeout,
-        baseURL: this.config.baseURL,
-      });
+      const response = await this.makeLoginRequest(credentials);
+
+      await this.handleSetCookieHeaders(response);
 
       const tokens = await this.extractTokens(response);
       await this.tokenManager.setTokens(tokens);
 
-      // Store tokens in cookie manager for fallback
       if (this.cookieManager) {
         this.cookieManager.setFallbackTokens(tokens);
       }
@@ -155,6 +150,98 @@ export class AuthClient implements HttpMethod, AuthMethods {
     } catch (error) {
       throw this.errorHandler.handleError(error);
     }
+  }
+
+  private async makeLoginRequest(credentials: any): Promise<AxiosResponse> {
+    return await axios.post(this.getFullUrl(this.config.endpoints.login), credentials, {
+      timeout: this.config.timeout,
+      baseURL: this.config.baseURL,
+      withCredentials: true,
+    });
+  }
+
+  private async handleSetCookieHeaders(response: AxiosResponse): Promise<void> {
+    if (!this.isNextJSServerContext()) return;
+
+    const setCookieHeaders = response.headers['set-cookie'];
+    if (!setCookieHeaders) return;
+
+    try {
+      await this.proxySetCookieHeaders(setCookieHeaders);
+
+      if (this.config.debugMode) {
+        console.log('Proxied Set-Cookie headers for Next.js context');
+      }
+    } catch (error) {
+      if (this.config.debugMode) {
+        console.warn('Failed to proxy Set-Cookie headers:', (error as Error).message);
+      }
+    }
+  }
+
+  private async proxySetCookieHeaders(setCookieHeaders: string[]): Promise<void> {
+    if (!this.context.cookieSetter) return;
+
+    for (const cookieHeader of setCookieHeaders) {
+      try {
+        const parsedCookie = this.parseSetCookieHeader(cookieHeader);
+        if (parsedCookie) {
+          this.context.cookieSetter(parsedCookie.name, parsedCookie.value, parsedCookie.options);
+
+          if (this.cookieManager) {
+            this.cookieManager.set(parsedCookie.name, parsedCookie.value);
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to proxy individual cookie:', (error as Error).message);
+      }
+    }
+  }
+
+  private parseSetCookieHeader(cookieHeader: string): {
+    name: string;
+    value: string;
+    options: any;
+  } | null {
+    try {
+      const parts = cookieHeader.split(';').map((part) => part.trim());
+      const [nameValue] = parts;
+      const [name, value] = nameValue.split('=');
+
+      if (!name || !value) return null;
+
+      const options: any = {};
+
+      for (let i = 1; i < parts.length; i++) {
+        const part = parts[i];
+        if (part.toLowerCase() === 'secure') {
+          options.secure = true;
+        } else if (part.toLowerCase() === 'httponly') {
+          options.httpOnly = true;
+        } else if (part.toLowerCase().startsWith('samesite=')) {
+          options.sameSite = part.split('=')[1];
+        } else if (part.toLowerCase().startsWith('max-age=')) {
+          options.maxAge = parseInt(part.split('=')[1], 10);
+        } else if (part.toLowerCase().startsWith('path=')) {
+          options.path = part.split('=')[1];
+        } else if (part.toLowerCase().startsWith('domain=')) {
+          options.domain = part.split('=')[1];
+        }
+      }
+
+      return {
+        name: name.trim(),
+        value: value.trim(),
+        options,
+      };
+    } catch (error) {
+      console.warn('Failed to parse Set-Cookie header:', (error as Error).message);
+      return null;
+    }
+  }
+
+  private isNextJSServerContext(): boolean {
+    return typeof window === 'undefined' && !!this.context.cookies && !!this.context.cookieSetter;
   }
 
   async logout(): Promise<void> {
@@ -192,7 +279,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
   async setTokens(tokens: TokenPair): Promise<void> {
     await this.tokenManager.setTokens(tokens);
 
-    // Store in cookie manager for fallback
     if (this.cookieManager) {
       this.cookieManager.setFallbackTokens(tokens);
     }
@@ -203,7 +289,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
     this.requestQueue.clearQueue();
   }
 
-  // HTTP methods
   async get<T = any>(url: string, config?: RequestConfig): Promise<LoginResponse<T>> {
     return this.request<T>('get', url, undefined, config);
   }
@@ -281,7 +366,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
       await this.tokenManager.setTokens(newTokens);
 
-      // Update fallback tokens
       if (this.cookieManager) {
         this.cookieManager.setFallbackTokens(newTokens);
       }
@@ -317,22 +401,22 @@ export class AuthClient implements HttpMethod, AuthMethods {
   }
 
   private async extractTokensFromCookies(response: AxiosResponse): Promise<TokenPair> {
-    // First try to extract from response body as fallback
+    await this.handleResponseCookies(response);
+
     const bodyTokens = this.tryExtractFromBody(response);
-    if (bodyTokens) {
-      // Set fallback tokens in cookie manager
-      if (this.cookieManager) {
-        this.cookieManager.setFallbackTokens(bodyTokens);
+    if (bodyTokens && this.cookieManager) {
+      this.cookieManager.setFallbackTokens(bodyTokens);
+
+      if (this.isNextJSServerContext()) {
+        this.cookieManager.set(this.config.tokens.access, bodyTokens.accessToken);
+        this.cookieManager.set(this.config.tokens.refresh, bodyTokens.refreshToken);
       }
-      return bodyTokens;
     }
 
-    // Get options safely
     const cookieOptions = this.cookieManager?.getOptions();
     const waitTime = cookieOptions?.waitForCookies || 100;
     const maxRetries = cookieOptions?.retryCount || 3;
 
-    // Allow time for cookies to be set by browser
     await new Promise((resolve) => setTimeout(resolve, waitTime));
 
     let lastError: Error | null = null;
@@ -347,18 +431,14 @@ export class AuthClient implements HttpMethod, AuthMethods {
         lastError = error as Error;
       }
 
-      // Wait longer on each retry
       if (attempt < maxRetries - 1) {
         await new Promise((resolve) => setTimeout(resolve, waitTime * (attempt + 1)));
       }
     }
 
-    // Final attempt: check if cookie manager has fallback tokens
-    if (this.cookieManager) {
-      const fallbackTokens = this.cookieManager.getFallbackTokens();
-      if (fallbackTokens) {
-        return fallbackTokens;
-      }
+    if (bodyTokens) {
+      console.log('Using fallback tokens from response body');
+      return bodyTokens;
     }
 
     throw new Error(
@@ -366,11 +446,28 @@ export class AuthClient implements HttpMethod, AuthMethods {
     );
   }
 
+  private async handleResponseCookies(response: AxiosResponse): Promise<void> {
+    if (!this.isNextJSServerContext()) return;
+
+    const setCookieHeaders = response.headers['set-cookie'];
+    if (!setCookieHeaders) return;
+
+    for (const cookieHeader of setCookieHeaders) {
+      const parsed = this.parseSetCookieHeader(cookieHeader);
+      if (parsed && this.cookieManager) {
+        this.cookieManager.set(parsed.name, parsed.value);
+
+        if (this.context.cookieSetter) {
+          this.context.cookieSetter(parsed.name, parsed.value, parsed.options);
+        }
+      }
+    }
+  }
+
   private tryExtractFromBody(response: AxiosResponse): TokenPair | null {
     try {
       const data = response.data;
 
-      // Try different response structures
       const accessToken =
         data[this.config.tokens.access] ||
         data.data?.[this.config.tokens.access] ||

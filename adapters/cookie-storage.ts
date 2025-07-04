@@ -11,7 +11,7 @@ export class CookieStorageAdapter implements StorageAdapter {
       secure: true,
       sameSite: 'lax',
       path: '/',
-      maxAge: 86400, // 24 hours
+      maxAge: 86400,
       ...options,
     };
     this.isServer = typeof window === 'undefined';
@@ -42,11 +42,9 @@ export class CookieStorageAdapter implements StorageAdapter {
   }
 
   clear(): void {
-    // Can't clear all cookies, only warn
     console.warn('Cookie clear() not implemented - clear tokens individually');
   }
 
-  // Client-side cookie methods
   private getClientSideCookie(key: string): string | null {
     if (typeof document === 'undefined') return null;
 
@@ -99,14 +97,11 @@ export class CookieStorageAdapter implements StorageAdapter {
     document.cookie = cookieString;
   }
 
-  // Server-side cookie methods
   private getServerSideCookie(key: string): string | null {
-    // Try different cookie access patterns
     if (this.context.req?.cookies) {
       return this.context.req.cookies[key] || null;
     }
 
-    // Try Next.js style
     if (this.context.cookies && typeof this.context.cookies === 'function') {
       try {
         const cookieStore = this.context.cookies();
@@ -131,7 +126,6 @@ export class CookieStorageAdapter implements StorageAdapter {
       httpOnly: this.options.httpOnly,
     };
 
-    // Remove undefined values
     Object.keys(cookieOptions).forEach((key) => {
       if (cookieOptions[key] === undefined) {
         delete cookieOptions[key];
@@ -139,10 +133,8 @@ export class CookieStorageAdapter implements StorageAdapter {
     });
 
     if (this.context.res.cookie) {
-      // Express-style
       this.context.res.cookie(key, value, cookieOptions);
     } else if (this.context.res.setHeader) {
-      // Node.js native style
       const cookieString = this.buildCookieString(key, value, cookieOptions);
       this.context.res.setHeader('Set-Cookie', cookieString);
     }
@@ -157,10 +149,8 @@ export class CookieStorageAdapter implements StorageAdapter {
     };
 
     if (this.context.res.clearCookie) {
-      // Express-style
       this.context.res.clearCookie(key, expiredOptions);
     } else if (this.context.res.setHeader) {
-      // Node.js native style
       const cookieString = this.buildCookieString(key, '', {
         ...expiredOptions,
         expires: new Date(0),

@@ -2,12 +2,10 @@ import type { AuthFlowConfig, AuthContext } from './types';
 import { AuthClient } from './core/auth-client';
 import { SingleTokenAuthClient } from './core/single-token-auth';
 
-// Main factory function - works exactly like before
 export function createAuthFlow(config: AuthFlowConfig, context?: AuthContext) {
   return new AuthClient(config, context);
 }
 
-// New single token auth for backends without refresh tokens
 export function createSingleTokenAuth(config: {
   baseURL: string;
   token: { access: string };
@@ -29,7 +27,6 @@ export function createSingleTokenAuth(config: {
   return new SingleTokenAuthClient(config);
 }
 
-// Preset configurations for common scenarios
 export const singleTokenPresets = {
   jwtOnly: (baseURL: string, tokenField: string = 'accessToken') => ({
     baseURL,
@@ -53,7 +50,9 @@ export const singleTokenPresets = {
   }),
 };
 
-// Configuration helpers
+/**
+ * Creates a cookie-based authentication configuration with proper Next.js support
+ */
 export function createCookieConfig(
   baseURL: string,
   options?: {
@@ -63,6 +62,17 @@ export function createCookieConfig(
       fallbackToBody?: boolean;
       retryCount?: number;
       debugMode?: boolean;
+      secure?: boolean;
+      sameSite?: 'strict' | 'lax' | 'none';
+      path?: string;
+      domain?: string;
+      maxAge?: number;
+      httpOnly?: boolean;
+    };
+    endpoints?: {
+      login?: string;
+      refresh?: string;
+      logout?: string;
     };
   }
 ): AuthFlowConfig {
@@ -72,22 +82,31 @@ export function createCookieConfig(
     storage: {
       type: 'cookies',
       options: {
-        secure: true,
+        secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
+        httpOnly: false,
+        waitForCookies: 1000,
+        fallbackToBody: true,
+        retryCount: 3,
+        debugMode: process.env.NODE_ENV !== 'production',
         ...options?.cookieOptions,
       },
     },
     tokens: options?.tokenNames || { access: 'accessToken', refresh: 'refreshToken' },
     endpoints: {
-      login: 'auth/login',
-      refresh: 'auth/refresh',
-      logout: 'auth/logout',
+      login: '/auth/login',
+      refresh: '/auth/refresh',
+      logout: '/auth/logout',
+      ...options?.endpoints,
     },
+    debugMode: options?.cookieOptions?.debugMode ?? process.env.NODE_ENV !== 'production',
   };
 }
 
-// Diagnostic utility
+/**
+ * Diagnostic utility for troubleshooting cookie issues
+ */
 export async function diagnoseCookieIssues(credentials: any, config: AuthFlowConfig) {
   console.log('Cookie Diagnostic Check');
   console.log('======================');
@@ -98,6 +117,7 @@ export async function diagnoseCookieIssues(credentials: any, config: AuthFlowCon
       type: 'cookies',
       options: { debugMode: true },
     },
+    debugMode: true,
   });
 
   try {
@@ -119,7 +139,36 @@ export async function diagnoseCookieIssues(credentials: any, config: AuthFlowCon
   }
 }
 
-// Export everything from types and core modules
+/**
+ * Helper to create a Next.js-optimized authentication configuration
+ */
+export function createNextJSConfig(
+  baseURL: string,
+  options?: {
+    tokenNames?: { access: string; refresh: string };
+    endpoints?: {
+      login?: string;
+      refresh?: string;
+      logout?: string;
+    };
+    debugMode?: boolean;
+  }
+): AuthFlowConfig {
+  return createCookieConfig(baseURL, {
+    tokenNames: options?.tokenNames,
+    endpoints: options?.endpoints,
+    cookieOptions: {
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      waitForCookies: 1000,
+      fallbackToBody: true,
+      retryCount: 3,
+      debugMode: options?.debugMode ?? process.env.NODE_ENV !== 'production',
+    },
+  });
+}
+
 export * from './types';
 export * from './core/auth-client';
 export * from './core/single-token-auth';
