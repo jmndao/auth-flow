@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- eliminate console spam and clean up error handling (52abf34)
+
 ## [2.0.8] - 2025-07-04
 
 ### Bug Fixes
