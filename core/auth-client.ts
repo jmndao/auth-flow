@@ -52,10 +52,10 @@ export class AuthClient implements HttpMethod, AuthMethods {
     if (this.config.tokenSource === 'cookies') {
       this.cookieManager = new CookieManager(this.context, {
         ...(typeof this.config.storage === 'object' ? this.config.storage.options : {}),
-        waitForCookies: 500,
+        waitForCookies: 100,
         fallbackToBody: true,
-        retryCount: 2,
-        debugMode: false,
+        retryCount: 1,
+        debugMode: this.config.debugMode || false,
       });
     }
 
@@ -83,17 +83,34 @@ export class AuthClient implements HttpMethod, AuthMethods {
     this.setupInterceptors();
   }
 
+  /**
+   * Setup request and response interceptors for automatic token handling
+   */
   private setupInterceptors(): void {
     this.axiosInstance.interceptors.request.use(
       async (config) => {
-        try {
-          const accessToken = await this.tokenManager.getAccessToken();
-          if (accessToken && config.headers) {
-            config.headers.Authorization = `Bearer ${accessToken}`;
-          }
-        } catch {
-          // Silent fail to prevent console noise
+        // Don't add auth headers to authentication endpoints
+        if (this.isAuthEndpoint(config.url)) {
+          return config;
         }
+
+        // Don't override existing authorization headers
+        if (config.headers?.Authorization) {
+          return config;
+        }
+
+        // Quick check if tokens exist before async call
+        if (this.tokenManager.hasTokensSync()) {
+          try {
+            const accessToken = await this.tokenManager.getAccessToken();
+            if (accessToken && config.headers) {
+              config.headers.Authorization = `Bearer ${accessToken}`;
+            }
+          } catch {
+            // Continue without auth header if token retrieval fails
+          }
+        }
+
         return config;
       },
       (error) => Promise.reject(error)
@@ -104,9 +121,11 @@ export class AuthClient implements HttpMethod, AuthMethods {
       async (error) => {
         const authError = this.errorHandler.handleError(error);
 
+        // Only attempt token refresh for non-auth endpoints
         if (
           this.errorHandler.isTokenExpiredError(authError) &&
           !error.config._retry &&
+          !this.isAuthEndpoint(error.config?.url) &&
           (await this.tokenManager.hasTokens())
         ) {
           error.config._retry = true;
@@ -127,6 +146,35 @@ export class AuthClient implements HttpMethod, AuthMethods {
         throw authError;
       }
     );
+  }
+
+  /**
+   * Check if URL is an authentication endpoint that shouldn't have auth headers
+   */
+  private isAuthEndpoint(url?: string): boolean {
+    if (!url) return false;
+
+    const authEndpoints = [
+      this.config.endpoints.login,
+      this.config.endpoints.refresh,
+      this.config.endpoints.logout,
+    ];
+
+    // Remove base URL to get relative path
+    const cleanUrl = url.replace(this.config.baseURL || '', '');
+
+    return authEndpoints.some((endpoint) => {
+      if (!endpoint) return false;
+
+      // Check exact match first
+      if (cleanUrl === endpoint) return true;
+
+      // Normalize paths by removing leading/trailing slashes
+      const normalizedEndpoint = endpoint.replace(/^\/+|\/+$/g, '');
+      const normalizedUrl = cleanUrl.replace(/^\/+|\/+$/g, '');
+
+      return normalizedUrl === normalizedEndpoint;
+    });
   }
 
   async login<TUser = any, TCredentials = LoginCredentials>(
@@ -166,6 +214,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     }
   }
 
+  /**
+   * Make the actual login request to the authentication endpoint
+   */
   private async makeLoginRequest(credentials: any): Promise<AxiosResponse> {
     return await axios.post(this.getFullUrl(this.config.endpoints.login), credentials, {
       timeout: this.config.timeout,
@@ -174,6 +225,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     });
   }
 
+  /**
+   * Handle Set-Cookie headers from login response for server-side contexts
+   */
   private async handleSetCookieHeaders(response: AxiosResponse): Promise<void> {
     if (!this.isNextJSServerContext()) return;
 
@@ -183,10 +237,13 @@ export class AuthClient implements HttpMethod, AuthMethods {
     try {
       await this.proxySetCookieHeaders(setCookieHeaders);
     } catch {
-      // Silent fail
+      // Continue silently if cookie proxying fails
     }
   }
 
+  /**
+   * Proxy Set-Cookie headers to the server response
+   */
   private async proxySetCookieHeaders(setCookieHeaders: string[]): Promise<void> {
     if (!this.context.cookieSetter) return;
 
@@ -201,11 +258,14 @@ export class AuthClient implements HttpMethod, AuthMethods {
           }
         }
       } catch {
-        // Silent fail
+        // Continue with next cookie if parsing fails
       }
     }
   }
 
+  /**
+   * Parse Set-Cookie header string into name, value, and options
+   */
   private parseSetCookieHeader(cookieHeader: string): {
     name: string;
     value: string;
@@ -247,6 +307,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     }
   }
 
+  /**
+   * Check if running in Next.js server context
+   */
   private isNextJSServerContext(): boolean {
     return typeof window === 'undefined' && !!this.context.cookies && !!this.context.cookieSetter;
   }
@@ -257,7 +320,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
         try {
           await this.axiosInstance.post(this.config.endpoints.logout);
         } catch {
-          // Silent fail for logout endpoint
+          // Continue with logout even if endpoint call fails
         }
       }
 
@@ -331,6 +394,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     return this.request<T>('options', url, undefined, config);
   }
 
+  /**
+   * Generic request method with error handling and retries
+   */
   private async request<T = any>(
     method: string,
     url: string,
@@ -354,6 +420,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     });
   }
 
+  /**
+   * Refresh access token using refresh token
+   */
   private async refreshTokens(): Promise<void> {
     const refreshToken = await this.tokenManager.getRefreshToken();
 
@@ -392,6 +461,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     }
   }
 
+  /**
+   * Extract tokens from login response based on token source configuration
+   */
   private async extractTokens(response: AxiosResponse): Promise<TokenPair> {
     if (this.config.tokenSource === 'cookies') {
       return this.extractTokensFromCookies(response);
@@ -400,6 +472,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     }
   }
 
+  /**
+   * Extract tokens from response body
+   */
   private async extractTokensFromBody(response: AxiosResponse): Promise<TokenPair> {
     const data = response.data;
     const accessToken = data[this.config.tokens.access];
@@ -414,28 +489,48 @@ export class AuthClient implements HttpMethod, AuthMethods {
     return { accessToken, refreshToken };
   }
 
+  /**
+   * Extract tokens from cookies with fallback to body
+   */
   private async extractTokensFromCookies(response: AxiosResponse): Promise<TokenPair> {
     await this.handleResponseCookies(response);
 
+    // Try extracting tokens from response body first (most reliable)
     const bodyTokens = this.tryExtractFromBody(response);
     if (bodyTokens && this.cookieManager) {
+      // Set fallback tokens immediately for quick access
       this.cookieManager.setFallbackTokens(bodyTokens);
       this.cookieManager.set(this.config.tokens.access, bodyTokens.accessToken);
       this.cookieManager.set(this.config.tokens.refresh, bodyTokens.refreshToken);
 
+      // Return body tokens immediately for server context
       if (this.isNextJSServerContext()) {
         return bodyTokens;
       }
     }
 
     const cookieOptions = this.cookieManager?.getOptions();
-    const waitTime = cookieOptions?.waitForCookies || 500;
-    const maxRetries = cookieOptions?.retryCount || 2;
+    const waitTime = Math.min(cookieOptions?.waitForCookies || 100, 100);
+    const maxRetries = Math.min(cookieOptions?.retryCount || 1, 1);
 
-    await new Promise((resolve) => setTimeout(resolve, waitTime));
+    const allErrors: Error[] = [];
 
-    let lastError: Error | null = null;
+    // First attempt without waiting
+    try {
+      const tokens = await this.tokenManager.getTokens();
+      if (tokens && tokens.accessToken && tokens.refreshToken) {
+        return tokens;
+      }
+    } catch (error) {
+      allErrors.push(error as Error);
+    }
 
+    // Wait before retries only if no body tokens available
+    if (!bodyTokens) {
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
+    }
+
+    // Retry attempts with minimal delay
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const tokens = await this.tokenManager.getTokens();
@@ -443,23 +538,39 @@ export class AuthClient implements HttpMethod, AuthMethods {
           return tokens;
         }
       } catch (error) {
-        lastError = error as Error;
+        allErrors.push(error as Error);
       }
 
-      if (attempt < maxRetries - 1) {
-        await new Promise((resolve) => setTimeout(resolve, waitTime * (attempt + 1)));
+      // Short wait before next attempt only if no body fallback available
+      if (attempt < maxRetries - 1 && !bodyTokens) {
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
       }
     }
 
+    // Use body tokens as final fallback
     if (bodyTokens) {
       return bodyTokens;
     }
 
-    throw new Error(
-      `Tokens not found in cookies after ${maxRetries} attempts. Expected: ${this.config.tokens.access}, ${this.config.tokens.refresh}. Last error: ${lastError?.message || 'Unknown'}`
+    // Create comprehensive error message
+    const errorMessages = allErrors.map((e) => e.message).join('; ');
+    const finalError = new Error(
+      `Token extraction failed after ${maxRetries + 1} attempts. ` +
+        `Expected: ${this.config.tokens.access}, ${this.config.tokens.refresh}. ` +
+        `Errors: ${errorMessages}`
     );
+
+    // Log only in debug mode after all attempts failed
+    if (this.config.debugMode) {
+      console.error('Cookie token extraction failed after all attempts:', finalError);
+    }
+
+    throw finalError;
   }
 
+  /**
+   * Handle response cookies for server-side contexts
+   */
   private async handleResponseCookies(response: AxiosResponse): Promise<void> {
     if (!this.isNextJSServerContext()) return;
 
@@ -478,6 +589,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     }
   }
 
+  /**
+   * Try to extract tokens from response body without throwing errors
+   */
   private tryExtractFromBody(response: AxiosResponse): TokenPair | null {
     try {
       const data = response.data;
@@ -497,12 +611,15 @@ export class AuthClient implements HttpMethod, AuthMethods {
         return { accessToken, refreshToken };
       }
     } catch {
-      // Silent fail
+      // Return null if extraction fails
     }
 
     return null;
   }
 
+  /**
+   * Get full URL by combining base URL with endpoint
+   */
   private getFullUrl(endpoint: string): string {
     if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
       return endpoint;
