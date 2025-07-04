@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- remove debugMode check from onTokenRefresh calls (de242ca)
+
 ## [2.0.9] - 2025-07-04
 
 ### Bug Fixes
