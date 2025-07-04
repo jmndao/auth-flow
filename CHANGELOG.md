@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.9] - 2025-07-04
 
 ### Bug Fixes
 
