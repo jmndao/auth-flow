@@ -54,7 +54,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
         ...(typeof this.config.storage === 'object' ? this.config.storage.options : {}),
         waitForCookies: 500,
         fallbackToBody: true,
-        retryCount: 3,
+        retryCount: 2,
         debugMode: false,
       });
     }
@@ -91,10 +91,8 @@ export class AuthClient implements HttpMethod, AuthMethods {
           if (accessToken && config.headers) {
             config.headers.Authorization = `Bearer ${accessToken}`;
           }
-        } catch (error) {
-          if (this.config.debugMode) {
-            console.warn('Failed to get access token for request:', (error as Error).message);
-          }
+        } catch {
+          // Silent fail to prevent console noise
         }
         return config;
       },
@@ -137,35 +135,26 @@ export class AuthClient implements HttpMethod, AuthMethods {
     validateLoginCredentials(credentials);
 
     try {
-      // Clear any existing tokens first
       await this.clearTokens();
 
       const response = await this.makeLoginRequest(credentials);
 
-      // Handle Set-Cookie headers first (for Next.js context)
       await this.handleSetCookieHeaders(response);
 
-      // Extract tokens from response
       const tokens = await this.extractTokens(response);
 
-      // Set tokens in token manager
       await this.tokenManager.setTokens(tokens);
 
-      // Store fallback tokens in cookie manager
       if (this.cookieManager) {
         this.cookieManager.setFallbackTokens(tokens);
-
-        // Also set directly in cookie manager for immediate access
         this.cookieManager.set(this.config.tokens.access, tokens.accessToken);
         this.cookieManager.set(this.config.tokens.refresh, tokens.refreshToken);
       }
 
-      // Call refresh callback only once
-      if (this.config.onTokenRefresh) {
+      if (this.config.onTokenRefresh && this.config.debugMode) {
         this.config.onTokenRefresh(tokens);
       }
 
-      // Verify tokens are accessible
       const verifyTokens = await this.tokenManager.getTokens();
       if (!verifyTokens) {
         throw new Error('Login succeeded but tokens are not accessible');
@@ -193,14 +182,8 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
     try {
       await this.proxySetCookieHeaders(setCookieHeaders);
-
-      if (this.config.debugMode) {
-        console.log('Proxied Set-Cookie headers for Next.js context');
-      }
-    } catch (error) {
-      if (this.config.debugMode) {
-        console.warn('Failed to proxy Set-Cookie headers:', (error as Error).message);
-      }
+    } catch {
+      // Silent fail
     }
   }
 
@@ -217,8 +200,8 @@ export class AuthClient implements HttpMethod, AuthMethods {
             this.cookieManager.set(parsedCookie.name, parsedCookie.value);
           }
         }
-      } catch (error) {
-        console.warn('Failed to proxy individual cookie:', (error as Error).message);
+      } catch {
+        // Silent fail
       }
     }
   }
@@ -259,8 +242,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
         value: value.trim(),
         options,
       };
-    } catch (error) {
-      console.warn('Failed to parse Set-Cookie header:', (error as Error).message);
+    } catch {
       return null;
     }
   }
@@ -274,8 +256,8 @@ export class AuthClient implements HttpMethod, AuthMethods {
       if (this.config.endpoints.logout) {
         try {
           await this.axiosInstance.post(this.config.endpoints.logout);
-        } catch (error) {
-          console.warn('Logout endpoint failed:', error);
+        } catch {
+          // Silent fail for logout endpoint
         }
       }
 
@@ -312,7 +294,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
   async clearTokens(): Promise<void> {
     await this.tokenManager.clearTokens();
 
-    // Also clear from cookie manager
     if (this.cookieManager) {
       this.cookieManager.remove(this.config.tokens.access);
       this.cookieManager.remove(this.config.tokens.refresh);
@@ -403,7 +384,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
         this.cookieManager.setFallbackTokens(newTokens);
       }
 
-      if (this.config.onTokenRefresh) {
+      if (this.config.onTokenRefresh && this.config.debugMode) {
         this.config.onTokenRefresh(newTokens);
       }
     } catch (error) {
@@ -434,19 +415,14 @@ export class AuthClient implements HttpMethod, AuthMethods {
   }
 
   private async extractTokensFromCookies(response: AxiosResponse): Promise<TokenPair> {
-    // First, handle any Set-Cookie headers from the response
     await this.handleResponseCookies(response);
 
-    // Try to extract from response body as immediate fallback
     const bodyTokens = this.tryExtractFromBody(response);
     if (bodyTokens && this.cookieManager) {
       this.cookieManager.setFallbackTokens(bodyTokens);
-
-      // Immediately store in temporary store and cookie manager
       this.cookieManager.set(this.config.tokens.access, bodyTokens.accessToken);
       this.cookieManager.set(this.config.tokens.refresh, bodyTokens.refreshToken);
 
-      // For Next.js server context, return the body tokens immediately
       if (this.isNextJSServerContext()) {
         return bodyTokens;
       }
@@ -454,14 +430,12 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
     const cookieOptions = this.cookieManager?.getOptions();
     const waitTime = cookieOptions?.waitForCookies || 500;
-    const maxRetries = cookieOptions?.retryCount || 3;
+    const maxRetries = cookieOptions?.retryCount || 2;
 
-    // Allow time for cookies to be set by browser
     await new Promise((resolve) => setTimeout(resolve, waitTime));
 
     let lastError: Error | null = null;
 
-    // Try to get tokens from cookie manager
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const tokens = await this.tokenManager.getTokens();
@@ -470,20 +444,14 @@ export class AuthClient implements HttpMethod, AuthMethods {
         }
       } catch (error) {
         lastError = error as Error;
-        console.warn(`Cookie extraction attempt ${attempt + 1} failed:`, (error as Error).message);
       }
 
-      // Wait longer on each retry
       if (attempt < maxRetries - 1) {
         await new Promise((resolve) => setTimeout(resolve, waitTime * (attempt + 1)));
       }
     }
 
-    // Use body tokens as final fallback
     if (bodyTokens) {
-      if (this.config.debugMode) {
-        console.log('Using fallback tokens from response body');
-      }
       return bodyTokens;
     }
 
@@ -529,7 +497,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
         return { accessToken, refreshToken };
       }
     } catch {
-      // Ignore extraction errors from body
+      // Silent fail
     }
 
     return null;
