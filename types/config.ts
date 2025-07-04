@@ -82,7 +82,16 @@ export interface RequestConfig {
 }
 
 export interface AuthContext {
+  /** Express-style request object */
   req?: any;
+  /** Express-style response object */
   res?: any;
-  cookies?: () => any;
+  /** Next.js App Router cookies() function */
+  cookies?: () => any | Promise<any>;
+  /** Next.js App Router headers() function */
+  headers?: () => any | Promise<any>;
+  /** Pre-extracted cookies object for performance */
+  cookiesObject?: Record<string, string>;
+  /** Custom cookie setter function */
+  cookieSetter?: (name: string, value: string, options?: any) => void;
 }

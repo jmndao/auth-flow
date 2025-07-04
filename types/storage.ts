@@ -30,7 +30,9 @@ export interface StorageAdapterContext {
   /** Environment indicator */
   environment?: 'client' | 'server';
   /** Next.js App Router cookies() function */
-  cookies?: () => any;
+  cookies?: () => any | Promise<any>;
+  /** Next.js App Router headers() function */
+  headers?: () => any | Promise<any>;
   /** Pre-extracted cookies object for performance */
   cookiesObject?: Record<string, string>;
   /** Custom cookie setter function */

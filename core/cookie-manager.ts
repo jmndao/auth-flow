@@ -14,7 +14,7 @@ interface CookieManagerOptions extends CookieStorageOptions {
 
 export class CookieManager implements StorageAdapter {
   private readonly context: StorageAdapterContext;
-  private readonly options: CookieManagerOptions;
+  public readonly options: CookieManagerOptions;
   private readonly isServer: boolean;
   private fallbackTokens: TokenPair | null = null;
 
@@ -106,6 +106,17 @@ export class CookieManager implements StorageAdapter {
 
   setFallbackTokens(tokens: TokenPair): void {
     this.fallbackTokens = tokens;
+    if (this.options.debugMode) {
+      console.log('Fallback tokens set:', tokens);
+    }
+  }
+
+  getFallbackTokens(): TokenPair | null {
+    return this.fallbackTokens;
+  }
+
+  getOptions(): CookieManagerOptions {
+    return this.options;
   }
 
   private sleep(ms: number): Promise<void> {
@@ -166,20 +177,29 @@ export class CookieManager implements StorageAdapter {
 
   private async getServerCookie(key: string): Promise<string | null> {
     const attempts = [
-      // Next.js App Router cookies() API
+      // Next.js App Router cookies() API with better error handling
       async () => {
         if (this.context.cookies && typeof this.context.cookies === 'function') {
           try {
             const cookieStore = this.context.cookies();
+
             // Handle both sync and async cookies() calls
             const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
-            const cookie = resolvedStore.get(key);
-            return cookie?.value || null;
+
+            // Different ways to access cookies from Next.js
+            if (resolvedStore && typeof resolvedStore.get === 'function') {
+              const cookie = resolvedStore.get(key);
+              return cookie?.value || null;
+            }
+
+            // Fallback for direct cookie object
+            if (resolvedStore && typeof resolvedStore === 'object') {
+              return resolvedStore[key] || null;
+            }
           } catch (error) {
             if (this.options.debugMode) {
               console.warn('Next.js cookies() access failed:', error);
             }
-            return null;
           }
         }
         return null;
@@ -212,20 +232,44 @@ export class CookieManager implements StorageAdapter {
         }
         return null;
       },
+
+      // Next.js headers() API fallback
+      async () => {
+        try {
+          if (this.context.headers && typeof this.context.headers === 'function') {
+            const headers = await this.context.headers();
+            const cookieHeader = headers.get('cookie');
+            if (cookieHeader) {
+              const cookies = cookieHeader.split(';');
+              for (const cookie of cookies) {
+                const [cookieKey, cookieValue] = cookie.trim().split('=');
+                if (cookieKey === key) {
+                  return decodeURIComponent(cookieValue);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          if (this.options.debugMode) {
+            console.warn('Headers API access failed:', error);
+          }
+        }
+        return null;
+      },
     ];
 
-    for (const attempt of attempts) {
+    for (const [index, attempt] of attempts.entries()) {
       try {
         const value = await attempt();
         if (value) {
           if (this.options.debugMode) {
-            console.log(`Server cookie found: ${key}`);
+            console.log(`Server cookie found via method ${index + 1}: ${key}`);
           }
           return value;
         }
       } catch (error) {
         if (this.options.debugMode) {
-          console.warn(`Cookie access attempt failed:`, error);
+          console.warn(`Cookie access attempt ${index + 1} failed:`, error);
         }
       }
     }
@@ -256,17 +300,28 @@ export class CookieManager implements StorageAdapter {
 
     let success = false;
 
-    // Try Next.js cookies() API first
+    // Try Next.js cookies() API first with better error handling
     if (this.context.cookies && typeof this.context.cookies === 'function') {
       try {
         const cookieStore = this.context.cookies();
-        if (cookieStore.set && typeof cookieStore.set === 'function') {
-          cookieStore.set(key, value, cookieOptions);
-          success = true;
-          if (this.options.debugMode) {
-            console.log(`Cookie set via Next.js API: ${key}`);
-          }
-        }
+        const resolvedStore =
+          cookieStore instanceof Promise ? cookieStore : Promise.resolve(cookieStore);
+
+        resolvedStore
+          .then((store) => {
+            if (store && store.set && typeof store.set === 'function') {
+              store.set(key, value, cookieOptions);
+              success = true;
+              if (this.options.debugMode) {
+                console.log(`Cookie set via Next.js API: ${key}`);
+              }
+            }
+          })
+          .catch((error) => {
+            if (this.options.debugMode) {
+              console.warn('Next.js cookie setting failed:', error);
+            }
+          });
       } catch (error) {
         if (this.options.debugMode) {
           console.warn('Next.js cookie setting failed:', error);
@@ -282,9 +337,9 @@ export class CookieManager implements StorageAdapter {
         if (this.options.debugMode) {
           console.log(`Cookie set via custom setter: ${key}`);
         }
-      } catch {
+      } catch (error) {
         if (this.options.debugMode) {
-          console.warn('Custom cookie setter failed');
+          console.warn('Custom cookie setter failed:', error);
         }
       }
     }
@@ -302,9 +357,9 @@ export class CookieManager implements StorageAdapter {
         if (this.options.debugMode) {
           console.log(`Cookie set via Express: ${key}`);
         }
-      } catch {
+      } catch (error) {
         if (this.options.debugMode) {
-          console.warn('Express cookie setting failed');
+          console.warn('Express cookie setting failed:', error);
         }
       }
     }
@@ -325,9 +380,9 @@ export class CookieManager implements StorageAdapter {
         if (this.options.debugMode) {
           console.log(`Cookie set via setHeader: ${key}`);
         }
-      } catch {
+      } catch (error) {
         if (this.options.debugMode) {
-          console.warn('SetHeader cookie setting failed');
+          console.warn('SetHeader cookie setting failed:', error);
         }
       }
     }
@@ -350,13 +405,22 @@ export class CookieManager implements StorageAdapter {
     if (this.context.cookies && typeof this.context.cookies === 'function') {
       try {
         const cookieStore = this.context.cookies();
-        if (cookieStore.delete && typeof cookieStore.delete === 'function') {
-          cookieStore.delete(key);
-          success = true;
-        } else if (cookieStore.set && typeof cookieStore.set === 'function') {
-          cookieStore.set(key, '', expiredOptions);
-          success = true;
-        }
+        const resolvedStore =
+          cookieStore instanceof Promise ? cookieStore : Promise.resolve(cookieStore);
+
+        resolvedStore
+          .then((store) => {
+            if (store && store.delete && typeof store.delete === 'function') {
+              store.delete(key);
+              success = true;
+            } else if (store && store.set && typeof store.set === 'function') {
+              store.set(key, '', expiredOptions);
+              success = true;
+            }
+          })
+          .catch(() => {
+            // Continue to next method
+          });
       } catch {
         // Continue to next method
       }

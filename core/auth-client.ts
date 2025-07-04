@@ -316,18 +316,80 @@ export class AuthClient implements HttpMethod, AuthMethods {
     return { accessToken, refreshToken };
   }
 
-  private async extractTokensFromCookies(_response: AxiosResponse): Promise<TokenPair> {
-    // Allow time for cookies to be set
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    const tokens = await this.tokenManager.getTokens();
-    if (!tokens) {
-      throw new Error(
-        `Tokens not found in cookies. Expected: ${this.config.tokens.access}, ${this.config.tokens.refresh}`
-      );
+  private async extractTokensFromCookies(response: AxiosResponse): Promise<TokenPair> {
+    // First try to extract from response body as fallback
+    const bodyTokens = this.tryExtractFromBody(response);
+    if (bodyTokens) {
+      // Set fallback tokens in cookie manager
+      if (this.cookieManager) {
+        this.cookieManager.setFallbackTokens(bodyTokens);
+      }
+      return bodyTokens;
     }
 
-    return tokens;
+    // Get options safely
+    const cookieOptions = this.cookieManager?.getOptions();
+    const waitTime = cookieOptions?.waitForCookies || 100;
+    const maxRetries = cookieOptions?.retryCount || 3;
+
+    // Allow time for cookies to be set by browser
+    await new Promise((resolve) => setTimeout(resolve, waitTime));
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const tokens = await this.tokenManager.getTokens();
+        if (tokens && tokens.accessToken && tokens.refreshToken) {
+          return tokens;
+        }
+      } catch (error) {
+        lastError = error as Error;
+      }
+
+      // Wait longer on each retry
+      if (attempt < maxRetries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, waitTime * (attempt + 1)));
+      }
+    }
+
+    // Final attempt: check if cookie manager has fallback tokens
+    if (this.cookieManager) {
+      const fallbackTokens = this.cookieManager.getFallbackTokens();
+      if (fallbackTokens) {
+        return fallbackTokens;
+      }
+    }
+
+    throw new Error(
+      `Tokens not found in cookies after ${maxRetries} attempts. Expected: ${this.config.tokens.access}, ${this.config.tokens.refresh}. Last error: ${lastError?.message || 'Unknown'}`
+    );
+  }
+
+  private tryExtractFromBody(response: AxiosResponse): TokenPair | null {
+    try {
+      const data = response.data;
+
+      // Try different response structures
+      const accessToken =
+        data[this.config.tokens.access] ||
+        data.data?.[this.config.tokens.access] ||
+        data.token ||
+        data.accessToken;
+
+      const refreshToken =
+        data[this.config.tokens.refresh] ||
+        data.data?.[this.config.tokens.refresh] ||
+        data.refreshToken;
+
+      if (accessToken && refreshToken) {
+        return { accessToken, refreshToken };
+      }
+    } catch {
+      // Ignore extraction errors from body
+    }
+
+    return null;
   }
 
   private getFullUrl(endpoint: string): string {

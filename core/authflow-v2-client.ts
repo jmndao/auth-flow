@@ -41,6 +41,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   private readonly retryManager: RetryManager;
   private readonly httpClient: AxiosInstance;
   private readonly config: AuthFlowV2Config;
+  private readonly context: AuthContext;
 
   private activeProvider = 'primary';
   private debugMode = false;
@@ -49,10 +50,11 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
 
   constructor(config: AuthFlowV2Config, context?: AuthContext) {
     this.config = this.normalizeConfig(config);
+    this.context = context || {};
     this.debugMode = config.debugMode || false;
 
-    // Initialize core authentication client
-    this.coreAuth = new AuthClient(config, context);
+    // Initialize core authentication client with enhanced context
+    this.coreAuth = new AuthClient(config, this.enhanceContext(this.context));
 
     // Create HTTP client
     this.httpClient = axios.create({
@@ -81,6 +83,26 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     if (this.debugMode) {
       console.log('AuthFlow v2.0 initialized with features:', this.getEnabledFeatures());
     }
+  }
+
+  /**
+   * Enhances the context with additional Next.js specific handling
+   */
+  private enhanceContext(context: AuthContext): AuthContext {
+    const enhanced = { ...context };
+
+    // Add headers function if available in Next.js environment
+    if (typeof window === 'undefined' && !enhanced.headers) {
+      try {
+        // Dynamically import Next.js headers if available
+        const { headers } = require('next/headers');
+        enhanced.headers = headers;
+      } catch {
+        // Next.js headers not available, continue without it
+      }
+    }
+
+    return enhanced;
   }
 
   /**
@@ -196,7 +218,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     return this.coreAuth.clearTokens();
   }
 
-  // Enhanced HTTP Methods
+  // HTTP Methods with enhanced context support
 
   async get<T = any>(url: string, config?: V2RequestConfig): Promise<T> {
     return this.request<T>('GET', url, undefined, config);
@@ -219,7 +241,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   }
 
   /**
-   * Enhanced request method with all v2.0 features
+   * Request method with improved cookie context handling
    */
   private async request<T>(
     method: string,
@@ -248,7 +270,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
         return this.circuitBreaker.execute(async () => {
           // Execute with retry
           return this.retryManager.execute(async () => {
-            // Prepare request config
+            // Prepare request config with enhanced context
             const requestConfig = await this.prepareRequestConfig(method, url, data, config);
 
             // Make the actual HTTP request
@@ -271,7 +293,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   }
 
   /**
-   * Prepares request configuration with security headers
+   * Prepares request configuration with security headers and enhanced context
    */
   private async prepareRequestConfig(
     method: string,
@@ -295,10 +317,16 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
       headers = { ...config.headers };
     }
 
-    // Add authentication header
-    const accessToken = await this.coreAuth.getTokens();
-    if (accessToken?.accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken.accessToken}`;
+    // Add authentication header with improved token retrieval
+    try {
+      const accessToken = await this.coreAuth.getTokens();
+      if (accessToken?.accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken.accessToken}`;
+      }
+    } catch (error) {
+      if (this.debugMode) {
+        console.warn('Failed to get tokens for request:', error);
+      }
     }
 
     // Add security headers
@@ -346,32 +374,6 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
       });
     }
   }
-
-  /**
-   * Handles request errors
-   */
-  //   private handleErrorResponse(error: any, startTime: number): void {
-  //     const responseTime = Date.now() - startTime;
-
-  //     // Record performance metrics
-  //     this.performanceMonitor.recordRequest(
-  //       error.config?.url || '',
-  //       error.config?.method?.toUpperCase() || 'GET',
-  //       error.response?.status || 0,
-  //       responseTime
-  //     );
-
-  //     // Record analytics
-  //     if (this.config.analytics?.enabled) {
-  //       this.recordAnalyticsEvent('api_request_error', {
-  //         url: error.config?.url,
-  //         method: error.config?.method,
-  //         status: error.response?.status || 0,
-  //         error: error.message,
-  //         responseTime,
-  //       });
-  //     }
-  //   }
 
   // Performance Monitoring Methods
 
