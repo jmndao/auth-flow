@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.11] - 2025-07-04
 
 ### Bug Fixes
 
