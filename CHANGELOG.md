@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Other Changes
+
+- Refactor AuthFlow v2: Simplify createAuthFlowV2, remove presets, and enhance testing (cbfb592)
+
 ## [2.0.11] - 2025-07-04
 
 ### Bug Fixes
