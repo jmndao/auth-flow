@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Code Refactoring
+
+- update package.json description and improve rollup config for production builds (808ee33)
+- simplify cookie and auth client handling, improve error handling (852794c)
+
 ## [2.0.12] - 2025-07-04
 
 ### Other Changes
