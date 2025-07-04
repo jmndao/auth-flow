@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- enhance token management and cookie handling with debug logging (a3baa3b)
+
 ## [2.0.7] - 2025-07-04
 
 ### Bug Fixes
