@@ -1,5 +1,3 @@
-// index-v2.ts
-
 import type {
   AuthFlowV2Config,
   AuthFlowV2Client,
@@ -8,6 +6,7 @@ import type {
 } from './types/authflow-v2';
 import type { AuthContext } from './types/config';
 import { AuthFlowV2ClientImpl } from './core/authflow-v2-client';
+import { ContextDetector } from './core/context-detector';
 
 // Re-export v1.x functionality selectively to avoid conflicts
 export { createAuthFlow, createSingleTokenAuth } from './index';
@@ -30,10 +29,10 @@ export type { V2RetryConfig as RetryConfigV2 } from './types/authflow-v2';
 export type { CircuitBreakerConfig, HealthConfig } from './types/resilience';
 
 /**
- * Creates a new AuthFlow v2.0 client instance with comprehensive production features
+ * Creates a new AuthFlow v2.0 client instance with automatic context detection
  *
  * @param config - v2.0 configuration object or base URL string
- * @param context - Server-side context (optional)
+ * @param context - Server-side context (auto-detected if not provided)
  * @returns AuthFlow v2.0 client instance
  */
 export const createAuthFlowV2: CreateAuthFlowV2 = (
@@ -45,7 +44,6 @@ export const createAuthFlowV2: CreateAuthFlowV2 = (
     typeof config === 'string'
       ? {
           baseURL: config,
-          // Add default endpoints and tokens for v2.0
           endpoints: {
             login: '/auth/login',
             refresh: '/auth/refresh',
@@ -57,7 +55,6 @@ export const createAuthFlowV2: CreateAuthFlowV2 = (
           },
         }
       : {
-          // Provide defaults for object config
           endpoints: {
             login: '/auth/login',
             refresh: '/auth/refresh',
@@ -70,7 +67,27 @@ export const createAuthFlowV2: CreateAuthFlowV2 = (
           ...config,
         };
 
-  return new AuthFlowV2ClientImpl(baseConfig, context);
+  // Use provided context or auto-detect
+  const finalContext = context || ContextDetector.getAutoContext();
+
+  // Debug logging for context detection
+  if (baseConfig.debugMode || process.env.NODE_ENV !== 'production') {
+    const envInfo = ContextDetector.getEnvironmentInfo();
+    const contextInfo = {
+      hasCookies: !!finalContext.cookies,
+      hasHeaders: !!finalContext.headers,
+      hasCookieSetter: !!finalContext.cookieSetter,
+      hasReq: !!finalContext.req,
+      hasRes: !!finalContext.res,
+    };
+
+    if (baseConfig.debugMode) {
+      console.debug('[AuthFlow] Detected environment:', envInfo);
+      console.debug('[AuthFlow] Context information:', contextInfo);
+    }
+  }
+
+  return new AuthFlowV2ClientImpl(baseConfig, finalContext);
 };
 
 /**
@@ -321,8 +338,85 @@ export function createProductionAuthFlow(
 }
 
 /**
- * Diagnostic utilities
+ * Environment detection and diagnostic utilities
  */
+export function diagnoseAuthFlowEnvironment() {
+  const envInfo = ContextDetector.getEnvironmentInfo();
+  const autoContext = ContextDetector.getAutoContext();
+
+  return {
+    environment: envInfo,
+    detectedContext: {
+      hasCookies: !!autoContext.cookies,
+      hasHeaders: !!autoContext.headers,
+      hasCookieSetter: !!autoContext.cookieSetter,
+      hasReq: !!autoContext.req,
+      hasRes: !!autoContext.res,
+    },
+    recommendations: {
+      tokenSource: envInfo.isServer ? 'cookies' : 'body',
+      storage: envInfo.isNextJS ? 'cookies' : envInfo.isServer ? 'memory' : 'localStorage',
+      debugMode: envInfo.nodeEnv !== 'production',
+    },
+    compatibility: {
+      nextJS: envInfo.isNextJS,
+      serverSide: envInfo.isServer,
+      clientSide: !envInfo.isServer,
+      cookiesAvailable: !!autoContext.cookies || typeof document !== 'undefined',
+      localStorageAvailable: typeof localStorage !== 'undefined',
+    },
+  };
+}
+
+/**
+ * Smart configuration generator based on detected environment
+ */
+export function generateSmartConfig(
+  baseURL: string,
+  overrides: Partial<AuthFlowV2Config> = {}
+): AuthFlowV2Config {
+  const diagnosis = diagnoseAuthFlowEnvironment();
+
+  const smartConfig: AuthFlowV2Config = {
+    baseURL,
+    endpoints: {
+      login: '/auth/login',
+      refresh: '/auth/refresh',
+      logout: '/auth/logout',
+    },
+    tokens: {
+      access: 'accessToken',
+      refresh: 'refreshToken',
+    },
+    // Smart defaults based on environment
+    tokenSource: diagnosis.recommendations.tokenSource as 'body' | 'cookies',
+    storage: {
+      type: diagnosis.recommendations.storage as any,
+      options: {
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        httpOnly: false,
+        waitForCookies: 1000,
+        fallbackToBody: true,
+        retryCount: 3,
+        debugMode: diagnosis.recommendations.debugMode,
+      },
+    },
+    debugMode: diagnosis.recommendations.debugMode,
+    caching: {
+      enabled: true,
+      defaultTTL: 300000,
+    },
+    monitoring: {
+      enabled: true,
+      sampleRate: diagnosis.environment.nodeEnv === 'production' ? 0.1 : 1.0,
+    },
+    ...overrides,
+  };
+
+  return smartConfig;
+}
 
 /**
  * Tests all AuthFlow v2.0 features with a given configuration
@@ -438,4 +532,6 @@ export default {
   authFlowPresets,
   testAuthFlowFeatures,
   migrateV1ConfigToV2,
+  diagnoseAuthFlowEnvironment,
+  generateSmartConfig,
 };
