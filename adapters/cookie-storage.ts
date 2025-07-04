@@ -11,7 +11,7 @@ export class CookieStorageAdapter implements StorageAdapter {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
-      maxAge: 86400,
+      maxAge: 86400, // 24 hours
       httpOnly: false,
       ...options,
     };
@@ -26,12 +26,9 @@ export class CookieStorageAdapter implements StorageAdapter {
     }
   }
 
-  /**
-   * Set cookie value
-   */
   async set(key: string, value: string): Promise<void> {
     if (this.isServer) {
-      await this.setServerCookie(key, value);
+      this.setServerCookie(key, value);
     } else {
       this.setClientCookie(key, value);
     }
@@ -39,19 +36,16 @@ export class CookieStorageAdapter implements StorageAdapter {
 
   async remove(key: string): Promise<void> {
     if (this.isServer) {
-      await this.removeServerCookie(key);
+      this.removeServerCookie(key);
     } else {
       this.removeClientCookie(key);
     }
   }
 
   async clear(): Promise<void> {
-    // Not implemented for security
+    console.warn('Cookie clear() not implemented - clear tokens individually');
   }
 
-  /**
-   * Get cookie from client-side document
-   */
   private getClientCookie(key: string): string | null {
     if (typeof document === 'undefined') return null;
 
@@ -63,8 +57,8 @@ export class CookieStorageAdapter implements StorageAdapter {
           return decodeURIComponent(cookieValue);
         }
       }
-    } catch {
-      // Silently handle client cookie errors
+    } catch (error) {
+      console.warn('Failed to read client cookie:', error);
     }
 
     return null;
@@ -94,14 +88,11 @@ export class CookieStorageAdapter implements StorageAdapter {
       }
 
       document.cookie = cookieString;
-    } catch {
-      // Silently handle client cookie setting errors
+    } catch (error) {
+      console.warn('Failed to set client cookie:', error);
     }
   }
 
-  /**
-   * Remove cookie from client-side
-   */
   private removeClientCookie(key: string): void {
     if (typeof document === 'undefined') return;
 
@@ -116,13 +107,13 @@ export class CookieStorageAdapter implements StorageAdapter {
       }
 
       document.cookie = cookieString;
-    } catch {
-      // Silently handle client cookie removal errors
+    } catch (error) {
+      console.warn('Failed to remove client cookie:', error);
     }
   }
 
   private async getServerCookie(key: string): Promise<string | null> {
-    // Try Next.js cookies() function with proper await
+    // Try Next.js cookies() function - ONLY CHANGE: properly await
     if (this.context.cookies && typeof this.context.cookies === 'function') {
       try {
         const cookieStore = await this.context.cookies();
@@ -130,8 +121,8 @@ export class CookieStorageAdapter implements StorageAdapter {
           const cookie = cookieStore.get(key);
           return cookie?.value || null;
         }
-      } catch {
-        // Continue to next method
+      } catch (error) {
+        console.warn('Failed to access Next.js cookies:', error);
       }
     }
 
@@ -150,37 +141,24 @@ export class CookieStorageAdapter implements StorageAdapter {
             return decodeURIComponent(cookieValue);
           }
         }
-      } catch {
-        // Continue if parsing fails
+      } catch (error) {
+        console.warn('Failed to parse cookie header:', error);
       }
     }
 
     return null;
   }
 
-  private async setServerCookie(key: string, value: string): Promise<void> {
+  private setServerCookie(key: string, value: string): void {
     const cookieOptions = this.buildCookieOptions();
 
-    // Try custom cookie setter first (async)
+    // Try custom cookie setter first
     if (this.context.cookieSetter && typeof this.context.cookieSetter === 'function') {
       try {
-        await this.context.cookieSetter(key, value, cookieOptions);
+        this.context.cookieSetter(key, value, cookieOptions);
         return;
-      } catch {
-        // Continue to next method
-      }
-    }
-
-    // Try Next.js cookies() with proper await
-    if (this.context.cookies && typeof this.context.cookies === 'function') {
-      try {
-        const cookieStore = await this.context.cookies();
-        if (cookieStore && typeof cookieStore.set === 'function') {
-          cookieStore.set(key, value, cookieOptions);
-          return;
-        }
-      } catch {
-        // Continue to next method
+      } catch (error) {
+        console.warn('Custom cookie setter failed:', error);
       }
     }
 
@@ -189,12 +167,12 @@ export class CookieStorageAdapter implements StorageAdapter {
       try {
         const expressOptions = { ...cookieOptions };
         if (expressOptions.maxAge) {
-          expressOptions.maxAge = expressOptions.maxAge * 1000;
+          expressOptions.maxAge = expressOptions.maxAge * 1000; // Express expects milliseconds
         }
         this.context.res.cookie(key, value, expressOptions);
         return;
-      } catch {
-        // Continue to next method
+      } catch (error) {
+        console.warn('Express cookie setting failed:', error);
       }
     }
 
@@ -206,42 +184,26 @@ export class CookieStorageAdapter implements StorageAdapter {
         const cookies = Array.isArray(existingCookies) ? existingCookies : [existingCookies];
         cookies.push(cookieString);
         this.context.res.setHeader('Set-Cookie', cookies);
-      } catch {
-        // Final fallback failed
+      } catch (error) {
+        console.warn('Native setHeader cookie setting failed:', error);
       }
     }
   }
 
-  private async removeServerCookie(key: string): Promise<void> {
+  private removeServerCookie(key: string): void {
     const expiredOptions = {
       ...this.buildCookieOptions(),
       expires: new Date(0),
       maxAge: 0,
     };
 
-    // Try custom cookie setter (async)
+    // Try custom cookie setter
     if (this.context.cookieSetter && typeof this.context.cookieSetter === 'function') {
       try {
-        await this.context.cookieSetter(key, '', expiredOptions);
+        this.context.cookieSetter(key, '', expiredOptions);
         return;
-      } catch {
-        // Continue to next method
-      }
-    }
-
-    // Try Next.js cookies() with proper await
-    if (this.context.cookies && typeof this.context.cookies === 'function') {
-      try {
-        const cookieStore = await this.context.cookies();
-        if (cookieStore && typeof cookieStore.delete === 'function') {
-          cookieStore.delete(key);
-          return;
-        } else if (cookieStore && typeof cookieStore.set === 'function') {
-          cookieStore.set(key, '', expiredOptions);
-          return;
-        }
-      } catch {
-        // Continue to next method
+      } catch (error) {
+        console.warn('Custom cookie setter removal failed:', error);
       }
     }
 
@@ -250,8 +212,8 @@ export class CookieStorageAdapter implements StorageAdapter {
       try {
         this.context.res.clearCookie(key, expiredOptions);
         return;
-      } catch {
-        // Continue to next method
+      } catch (error) {
+        console.warn('Express clearCookie failed:', error);
       }
     }
 
@@ -263,15 +225,12 @@ export class CookieStorageAdapter implements StorageAdapter {
         const cookies = Array.isArray(existingCookies) ? existingCookies : [existingCookies];
         cookies.push(cookieString);
         this.context.res.setHeader('Set-Cookie', cookies);
-      } catch {
-        // Final cleanup failed
+      } catch (error) {
+        console.warn('Native setHeader cookie removal failed:', error);
       }
     }
   }
 
-  /**
-   * Build cookie options object
-   */
   private buildCookieOptions(): Record<string, any> {
     const options: Record<string, any> = {
       secure: this.options.secure,
@@ -287,6 +246,7 @@ export class CookieStorageAdapter implements StorageAdapter {
       options.domain = this.options.domain;
     }
 
+    // Remove undefined values
     Object.keys(options).forEach((key) => {
       if (options[key] === undefined) {
         delete options[key];
@@ -296,9 +256,6 @@ export class CookieStorageAdapter implements StorageAdapter {
     return options;
   }
 
-  /**
-   * Build cookie string for Set-Cookie header
-   */
   private buildCookieString(key: string, value: string, options: Record<string, any>): string {
     let cookieString = `${key}=${encodeURIComponent(value)}`;
 

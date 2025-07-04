@@ -26,41 +26,41 @@ export class ContextDetector {
     return context;
   }
 
-  private static detectNextJSCookies(): (() => Promise<any>) | undefined {
+  private static detectNextJSCookies(): (() => any) | undefined {
     try {
       const nextHeaders = require('next/headers');
       if (nextHeaders?.cookies && typeof nextHeaders.cookies === 'function') {
+        // ONLY CHANGE: Make sure we return async function that awaits
         return async () => {
           try {
             return await nextHeaders.cookies();
           } catch {
+            // Fallback to sync for older Next.js versions
             try {
               return nextHeaders.cookies();
             } catch {
+              console.warn('Next.js cookies() called outside request context');
               return null;
             }
           }
         };
       }
     } catch {
-      // Next.js not available
+      // Next.js not available or not App Router
     }
     return undefined;
   }
 
-  private static detectNextJSHeaders(): (() => Promise<any>) | undefined {
+  private static detectNextJSHeaders(): (() => any) | undefined {
     try {
       const nextHeaders = require('next/headers');
       if (nextHeaders?.headers && typeof nextHeaders.headers === 'function') {
-        return async () => {
+        return () => {
           try {
-            return await nextHeaders.headers();
+            return nextHeaders.headers();
           } catch {
-            try {
-              return nextHeaders.headers();
-            } catch {
-              return null;
-            }
+            console.warn('Next.js headers() called outside request context');
+            return null;
           }
         };
       }
@@ -71,11 +71,12 @@ export class ContextDetector {
   }
 
   private static createNextJSCookieSetter():
-    | ((name: string, value: string, options?: any) => Promise<void>)
+    | ((name: string, value: string, options?: any) => void)
     | undefined {
     const cookiesFn = this.detectNextJSCookies();
     if (!cookiesFn) return undefined;
 
+    // ONLY CHANGE: Make this async to properly await cookies()
     return async (name: string, value: string, options: any = {}) => {
       try {
         const cookieStore = await cookiesFn();
@@ -84,13 +85,13 @@ export class ContextDetector {
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
             path: '/',
-            maxAge: 60 * 60 * 24 * 7,
+            maxAge: 60 * 60 * 24 * 7, // 7 days default
             httpOnly: false,
             ...options,
           });
         }
-      } catch {
-        // Silently fail to prevent console pollution
+      } catch (error) {
+        console.warn(`Failed to set Next.js cookie ${name}:`, (error as Error).message);
       }
     };
   }
