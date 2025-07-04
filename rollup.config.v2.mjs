@@ -1,4 +1,4 @@
-// rollup.config.v2.mjs - V2 build (optimized)
+// rollup.config.v2.mjs - V2 build (enhanced)
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import typescript from '@rollup/plugin-typescript';
@@ -18,7 +18,7 @@ export default [
       file: 'dist/index-v2.esm.js',
       format: 'es',
       globals,
-      sourcemap: isDevelopment, // Only in development
+      sourcemap: false, // Never include source maps in published packages
     },
     plugins: [
       resolve(),
@@ -28,14 +28,22 @@ export default [
         declaration: true,
         declarationDir: 'dist',
         rootDir: '.',
-        declarationMap: isDevelopment, // Only in development
+        declarationMap: false, // Never include declaration maps
+        sourceMap: false, // Ensure no source maps
       }),
       isProduction &&
         terser({
           compress: {
             drop_console: true,
             drop_debugger: true,
-            pure_funcs: ['console.log', 'console.warn'], // Remove specific console calls
+            pure_funcs: ['console.log', 'console.warn', 'console.error', 'console.debug'], // Remove ALL console calls
+            passes: 2, // Run compression twice for better results
+          },
+          mangle: {
+            keep_fnames: false, // Allow function name mangling for smaller bundles
+          },
+          format: {
+            comments: false, // Remove all comments
           },
         }),
     ].filter(Boolean),
@@ -49,7 +57,7 @@ export default [
       file: 'dist/index-v2.js',
       format: 'cjs',
       globals,
-      sourcemap: isDevelopment, // Only in development
+      sourcemap: false, // Never include source maps
     },
     plugins: [
       resolve(),
@@ -58,12 +66,21 @@ export default [
         tsconfig: './tsconfig.json',
         declaration: false,
         declarationMap: false,
+        sourceMap: false,
       }),
       isProduction &&
         terser({
           compress: {
             drop_console: true,
             drop_debugger: true,
+            pure_funcs: ['console.log', 'console.warn', 'console.error', 'console.debug'],
+            passes: 2,
+          },
+          mangle: {
+            keep_fnames: false,
+          },
+          format: {
+            comments: false,
           },
         }),
     ].filter(Boolean),
@@ -89,15 +106,28 @@ export default [
               tsconfig: './tsconfig.json',
               declaration: false,
               declarationMap: false,
+              sourceMap: false,
             }),
             terser({
               compress: {
                 drop_console: true,
                 drop_debugger: true,
-                pure_funcs: ['console.log', 'console.warn', 'console.error'],
+                pure_funcs: [
+                  'console.log',
+                  'console.warn',
+                  'console.error',
+                  'console.debug',
+                  'console.info',
+                ],
+                passes: 3, // Extra compression for UMD
+                unsafe: true, // Aggressive compression
               },
               mangle: {
-                keep_fnames: true, // Keep function names for better stack traces
+                keep_fnames: false,
+                toplevel: true, // Mangle top-level names
+              },
+              format: {
+                comments: false,
               },
             }),
           ],

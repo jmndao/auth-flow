@@ -1,7 +1,7 @@
 {
   "name": "@jmndao/auth-flow",
   "version": "2.0.12",
-  "description": "Universal authentication client with production-ready features: caching, monitoring, security, resilience, and more",
+  "description": "Universal authentication client for JavaScript applications with production-ready features",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
@@ -18,7 +18,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "npm run build:dev",
+    "build": "npm run build:prod",
     "build:dev": "npm run clean && rollup -c && rollup -c rollup.config.v2.mjs && rollup -c rollup.config.middleware.mjs",
     "build:prod": "npm run clean && NODE_ENV=production rollup -c && NODE_ENV=production rollup -c rollup.config.v2.mjs && NODE_ENV=production rollup -c rollup.config.middleware.mjs",
     "build:watch": "rollup -c -w",
