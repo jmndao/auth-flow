@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- restore CookieManager for reliable token storage with Next.js cookie handling (14b45d2)
+
 ## [2.0.14] - 2025-07-04
 
 ### Code Refactoring
