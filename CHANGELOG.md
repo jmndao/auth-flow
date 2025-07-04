@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+- feat(auth): add automatic context detection to createAuthFlowV2 (a3c1999)
+
+### Bug Fixes
+
+- fix(auth): add cookie extraction fallback and retry mechanisms (9c09cb0)
+
+### Other Changes
+
+- build: optimize bundle size by removing production source maps (f0905a5)
+
 ## [2.0.5] - 2025-07-03
 
 ### Bug Fixes
