@@ -1,6 +1,6 @@
 {
   "name": "@jmndao/auth-flow",
-  "version": "2.0.11",
+  "version": "2.0.12",
   "description": "Universal authentication client with production-ready features: caching, monitoring, security, resilience, and more",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
