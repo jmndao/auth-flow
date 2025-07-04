@@ -75,23 +75,23 @@ export class CookieManager implements StorageAdapter {
     return this.tryFallbackTokens(key);
   }
 
-  set(key: string, value: string): void {
+  set(key: string, value: string): void | Promise<void> {
     // Update temporary store immediately for fast access
     this.temporaryStore.set(key, value);
 
-    // Set cookies without blocking main thread
+    // Set cookies - return Promise for server-side to be properly awaited
     if (this.isServer) {
-      this.setServerCookie(key, value);
+      return this.setServerCookie(key, value);
     } else {
       this.setClientCookie(key, value);
     }
   }
 
-  remove(key: string): void {
+  remove(key: string): void | Promise<void> {
     this.temporaryStore.delete(key);
 
     if (this.isServer) {
-      this.removeServerCookie(key);
+      return this.removeServerCookie(key);
     } else {
       this.removeClientCookie(key);
     }
@@ -221,7 +221,7 @@ export class CookieManager implements StorageAdapter {
       case 'nextjs-cookies': {
         if (this.context.cookies && typeof this.context.cookies === 'function') {
           const cookieStore = this.context.cookies();
-          // ONLY CHANGE: Handle both sync and async cookies
+          // Handle both sync and async cookies
           const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
           if (resolvedStore && typeof resolvedStore.get === 'function') {
             const cookie = resolvedStore.get(key);
@@ -269,7 +269,7 @@ export class CookieManager implements StorageAdapter {
         fn: async (): Promise<string | null> => {
           if (this.context.cookies && typeof this.context.cookies === 'function') {
             const cookieStore = this.context.cookies();
-            // ONLY CHANGE: Handle both sync and async cookies
+            // Handle both sync and async cookies
             const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
 
             if (resolvedStore && typeof resolvedStore.get === 'function') {
@@ -362,7 +362,7 @@ export class CookieManager implements StorageAdapter {
   /**
    * Set cookie on server-side using multiple methods
    */
-  private setServerCookie(key: string, value: string): void {
+  private async setServerCookie(key: string, value: string): Promise<void> {
     const cookieOptions: Record<string, any> = {
       secure: this.options.secure,
       sameSite: this.options.sameSite,
@@ -382,7 +382,7 @@ export class CookieManager implements StorageAdapter {
       }
     });
 
-    // Execute all cookie setting methods in parallel
+    // Execute all cookie setting methods and await them
     const setOperations = [
       this.context.cookies && typeof this.context.cookies === 'function'
         ? this.setWithNextjsCookies(key, value, cookieOptions)
@@ -401,12 +401,10 @@ export class CookieManager implements StorageAdapter {
         : null,
     ];
 
-    // Filter valid operations and execute without blocking
+    // Filter valid operations and await them
     const validOperations = setOperations.filter((op) => op !== null);
     if (validOperations.length > 0) {
-      Promise.allSettled(validOperations).catch(() => {
-        // Ignore errors in background cookie setting
-      });
+      await Promise.allSettled(validOperations);
     }
   }
 
@@ -420,7 +418,7 @@ export class CookieManager implements StorageAdapter {
   ): Promise<void> {
     try {
       const cookieStore = this.context.cookies!();
-      // ONLY CHANGE: Handle both sync and async cookies
+      // Handle both sync and async cookies
       const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
       if (resolvedStore && resolvedStore.set && typeof resolvedStore.set === 'function') {
         resolvedStore.set(key, value, options);
@@ -441,7 +439,7 @@ export class CookieManager implements StorageAdapter {
     options: Record<string, any>
   ): Promise<void> {
     try {
-      this.context.cookieSetter!(key, value, options);
+      await this.context.cookieSetter!(key, value, options);
     } catch (error) {
       if (this.options.debugMode) {
         console.warn('Custom cookie setter failed:', error);
@@ -494,14 +492,14 @@ export class CookieManager implements StorageAdapter {
   /**
    * Remove cookie from server-side using multiple methods
    */
-  private removeServerCookie(key: string): void {
+  private async removeServerCookie(key: string): Promise<void> {
     const expiredOptions: Record<string, any> = {
       ...this.options,
       expires: new Date(0),
       maxAge: 0,
     };
 
-    // Execute all removal methods in parallel
+    // Execute all removal methods and await them
     const removeOperations = [
       this.context.cookies ? this.removeWithNextjsCookies(key, expiredOptions) : null,
       this.context.cookieSetter ? this.removeWithCustomSetter(key, expiredOptions) : null,
@@ -511,9 +509,7 @@ export class CookieManager implements StorageAdapter {
 
     const validOperations = removeOperations.filter((op) => op !== null);
     if (validOperations.length > 0) {
-      Promise.allSettled(validOperations).catch(() => {
-        // Ignore errors in background cookie removal
-      });
+      await Promise.allSettled(validOperations);
     }
   }
 
@@ -523,7 +519,7 @@ export class CookieManager implements StorageAdapter {
   private async removeWithNextjsCookies(key: string, options: Record<string, any>): Promise<void> {
     try {
       const cookieStore = this.context.cookies!();
-      // ONLY CHANGE: Handle both sync and async cookies
+      // Handle both sync and async cookies
       const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
       if (resolvedStore && resolvedStore.delete && typeof resolvedStore.delete === 'function') {
         resolvedStore.delete(key);
@@ -542,7 +538,7 @@ export class CookieManager implements StorageAdapter {
    */
   private async removeWithCustomSetter(key: string, options: Record<string, any>): Promise<void> {
     try {
-      this.context.cookieSetter!(key, '', options);
+      await this.context.cookieSetter!(key, '', options);
     } catch (error) {
       if (this.options.debugMode) {
         console.warn('Custom cookie setter remove failed:', error);

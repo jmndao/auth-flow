@@ -11,7 +11,8 @@ import { CookieManager, LocalStorageAdapter, MemoryStorageAdapter } from '../ada
 import { detectEnvironment, validateTokenPair } from '../utils';
 
 /**
- * Enhanced token manager that uses CookieManager for better cookie handling
+ * Simplified token manager with clean storage handling
+ * Focuses on reliable token storage and retrieval without complex caching
  */
 export class TokenManager {
   private readonly storageAdapter: StorageAdapter;
@@ -57,7 +58,6 @@ export class TokenManager {
         return new LocalStorageAdapter();
 
       case 'cookies':
-        // Use CookieManager instead of CookieStorageAdapter for better reliability
         return new CookieManager(context, storageOptions);
 
       case 'memory':
@@ -105,7 +105,7 @@ export class TokenManager {
     try {
       validateTokenPair(tokens);
 
-      // If using CookieManager, also set fallback tokens for immediate access
+      // Set fallback tokens for immediate access if using CookieManager
       if (this.storageAdapter instanceof CookieManager) {
         this.storageAdapter.setFallbackTokens(tokens);
       }
@@ -191,11 +191,10 @@ export class TokenManager {
 
   /**
    * Synchronous check for token existence (for interceptors)
-   * Enhanced to work better with CookieManager's temporary store
    */
   hasTokensSync(): boolean {
     try {
-      // For CookieManager, check temporary store first for immediate access
+      // Check fallback tokens first for immediate access (CookieManager feature)
       if (this.storageAdapter instanceof CookieManager) {
         const fallbackTokens = this.storageAdapter.getFallbackTokens();
         if (fallbackTokens && fallbackTokens.accessToken && fallbackTokens.refreshToken) {
