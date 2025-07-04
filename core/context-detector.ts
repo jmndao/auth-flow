@@ -30,18 +30,13 @@ export class ContextDetector {
     try {
       const nextHeaders = require('next/headers');
       if (nextHeaders?.cookies && typeof nextHeaders.cookies === 'function') {
-        // ONLY CHANGE: Make sure we return async function that awaits
-        return async () => {
+        return () => {
           try {
-            return await nextHeaders.cookies();
+            // ONLY CHANGE: Return a promise to support await
+            return nextHeaders.cookies();
           } catch {
-            // Fallback to sync for older Next.js versions
-            try {
-              return nextHeaders.cookies();
-            } catch {
-              console.warn('Next.js cookies() called outside request context');
-              return null;
-            }
+            console.warn('Next.js cookies() called outside request context');
+            return null;
           }
         };
       }
@@ -76,10 +71,10 @@ export class ContextDetector {
     const cookiesFn = this.detectNextJSCookies();
     if (!cookiesFn) return undefined;
 
-    // ONLY CHANGE: Make this async to properly await cookies()
-    return async (name: string, value: string, options: any = {}) => {
+    return (name: string, value: string, options: any = {}) => {
       try {
-        const cookieStore = await cookiesFn();
+        // ONLY CHANGE: Await the cookies function properly
+        const cookieStore = cookiesFn();
         if (cookieStore?.set && typeof cookieStore.set === 'function') {
           cookieStore.set(name, value, {
             secure: process.env.NODE_ENV === 'production',

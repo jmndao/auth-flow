@@ -221,6 +221,7 @@ export class CookieManager implements StorageAdapter {
       case 'nextjs-cookies': {
         if (this.context.cookies && typeof this.context.cookies === 'function') {
           const cookieStore = this.context.cookies();
+          // ONLY CHANGE: Handle both sync and async cookies
           const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
           if (resolvedStore && typeof resolvedStore.get === 'function') {
             const cookie = resolvedStore.get(key);
@@ -268,6 +269,7 @@ export class CookieManager implements StorageAdapter {
         fn: async (): Promise<string | null> => {
           if (this.context.cookies && typeof this.context.cookies === 'function') {
             const cookieStore = this.context.cookies();
+            // ONLY CHANGE: Handle both sync and async cookies
             const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
 
             if (resolvedStore && typeof resolvedStore.get === 'function') {
@@ -418,6 +420,7 @@ export class CookieManager implements StorageAdapter {
   ): Promise<void> {
     try {
       const cookieStore = this.context.cookies!();
+      // ONLY CHANGE: Handle both sync and async cookies
       const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
       if (resolvedStore && resolvedStore.set && typeof resolvedStore.set === 'function') {
         resolvedStore.set(key, value, options);
@@ -520,6 +523,7 @@ export class CookieManager implements StorageAdapter {
   private async removeWithNextjsCookies(key: string, options: Record<string, any>): Promise<void> {
     try {
       const cookieStore = this.context.cookies!();
+      // ONLY CHANGE: Handle both sync and async cookies
       const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
       if (resolvedStore && resolvedStore.delete && typeof resolvedStore.delete === 'function') {
         resolvedStore.delete(key);

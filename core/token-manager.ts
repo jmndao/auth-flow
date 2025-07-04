@@ -7,13 +7,11 @@ import type {
   AuthContext,
   Environment,
 } from '../types';
-import { LocalStorageAdapter, MemoryStorageAdapter } from '../adapters';
-import { CookieStorageAdapter } from '../adapters/cookie-storage';
+import { CookieManager, LocalStorageAdapter, MemoryStorageAdapter } from '../adapters';
 import { detectEnvironment, validateTokenPair } from '../utils';
 
 /**
- * Simplified token manager with clean storage handling
- * Focuses on reliable token storage and retrieval without complex caching
+ * Enhanced token manager that uses CookieManager for better cookie handling
  */
 export class TokenManager {
   private readonly storageAdapter: StorageAdapter;
@@ -59,7 +57,8 @@ export class TokenManager {
         return new LocalStorageAdapter();
 
       case 'cookies':
-        return new CookieStorageAdapter(context, storageOptions);
+        // Use CookieManager instead of CookieStorageAdapter for better reliability
+        return new CookieManager(context, storageOptions);
 
       case 'memory':
         return new MemoryStorageAdapter();
@@ -106,6 +105,11 @@ export class TokenManager {
     try {
       validateTokenPair(tokens);
 
+      // If using CookieManager, also set fallback tokens for immediate access
+      if (this.storageAdapter instanceof CookieManager) {
+        this.storageAdapter.setFallbackTokens(tokens);
+      }
+
       await Promise.all([
         this.setToken(this.tokenConfig.access, tokens.accessToken),
         this.setToken(this.tokenConfig.refresh, tokens.refreshToken),
@@ -145,6 +149,11 @@ export class TokenManager {
    */
   async clearTokens(): Promise<void> {
     try {
+      // Clear fallback tokens if using CookieManager
+      if (this.storageAdapter instanceof CookieManager) {
+        this.storageAdapter.clear();
+      }
+
       await Promise.all([
         this.removeToken(this.tokenConfig.access),
         this.removeToken(this.tokenConfig.refresh),
@@ -182,9 +191,18 @@ export class TokenManager {
 
   /**
    * Synchronous check for token existence (for interceptors)
+   * Enhanced to work better with CookieManager's temporary store
    */
   hasTokensSync(): boolean {
     try {
+      // For CookieManager, check temporary store first for immediate access
+      if (this.storageAdapter instanceof CookieManager) {
+        const fallbackTokens = this.storageAdapter.getFallbackTokens();
+        if (fallbackTokens && fallbackTokens.accessToken && fallbackTokens.refreshToken) {
+          return true;
+        }
+      }
+
       const accessToken = this.storageAdapter.get(this.tokenConfig.access);
       const refreshToken = this.storageAdapter.get(this.tokenConfig.refresh);
 
