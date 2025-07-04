@@ -1,9 +1,5 @@
 import type { StorageAdapter, CookieStorageOptions, StorageAdapterContext } from '../types';
 
-/**
- * Simplified cookie storage adapter with clean server/client handling
- * Focuses on reliable cookie operations without complex fallback mechanisms
- */
 export class CookieStorageAdapter implements StorageAdapter {
   private readonly context: StorageAdapterContext;
   private readonly options: CookieStorageOptions;
@@ -15,16 +11,13 @@ export class CookieStorageAdapter implements StorageAdapter {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
-      maxAge: 86400, // 24 hours
+      maxAge: 86400,
       httpOnly: false,
       ...options,
     };
     this.isServer = typeof window === 'undefined';
   }
 
-  /**
-   * Get cookie value
-   */
   async get(key: string): Promise<string | null> {
     if (this.isServer) {
       return this.getServerCookie(key);
@@ -38,28 +31,22 @@ export class CookieStorageAdapter implements StorageAdapter {
    */
   async set(key: string, value: string): Promise<void> {
     if (this.isServer) {
-      this.setServerCookie(key, value);
+      await this.setServerCookie(key, value);
     } else {
       this.setClientCookie(key, value);
     }
   }
 
-  /**
-   * Remove cookie
-   */
   async remove(key: string): Promise<void> {
     if (this.isServer) {
-      this.removeServerCookie(key);
+      await this.removeServerCookie(key);
     } else {
       this.removeClientCookie(key);
     }
   }
 
-  /**
-   * Clear all cookies (not implemented for security)
-   */
   async clear(): Promise<void> {
-    console.warn('Cookie clear() not implemented - clear tokens individually');
+    // Not implemented for security
   }
 
   /**
@@ -76,16 +63,13 @@ export class CookieStorageAdapter implements StorageAdapter {
           return decodeURIComponent(cookieValue);
         }
       }
-    } catch (error) {
-      console.warn('Failed to read client cookie:', error);
+    } catch {
+      // Silently handle client cookie errors
     }
 
     return null;
   }
 
-  /**
-   * Set cookie on client-side
-   */
   private setClientCookie(key: string, value: string): void {
     if (typeof document === 'undefined') return;
 
@@ -110,8 +94,8 @@ export class CookieStorageAdapter implements StorageAdapter {
       }
 
       document.cookie = cookieString;
-    } catch (error) {
-      console.warn('Failed to set client cookie:', error);
+    } catch {
+      // Silently handle client cookie setting errors
     }
   }
 
@@ -132,16 +116,13 @@ export class CookieStorageAdapter implements StorageAdapter {
       }
 
       document.cookie = cookieString;
-    } catch (error) {
-      console.warn('Failed to remove client cookie:', error);
+    } catch {
+      // Silently handle client cookie removal errors
     }
   }
 
-  /**
-   * Get cookie from server-side context
-   */
   private async getServerCookie(key: string): Promise<string | null> {
-    // Try Next.js cookies() function
+    // Try Next.js cookies() function with proper await
     if (this.context.cookies && typeof this.context.cookies === 'function') {
       try {
         const cookieStore = await this.context.cookies();
@@ -149,8 +130,8 @@ export class CookieStorageAdapter implements StorageAdapter {
           const cookie = cookieStore.get(key);
           return cookie?.value || null;
         }
-      } catch (error) {
-        console.warn('Failed to access Next.js cookies:', error);
+      } catch {
+        // Continue to next method
       }
     }
 
@@ -169,27 +150,37 @@ export class CookieStorageAdapter implements StorageAdapter {
             return decodeURIComponent(cookieValue);
           }
         }
-      } catch (error) {
-        console.warn('Failed to parse cookie header:', error);
+      } catch {
+        // Continue if parsing fails
       }
     }
 
     return null;
   }
 
-  /**
-   * Set cookie on server-side
-   */
-  private setServerCookie(key: string, value: string): void {
+  private async setServerCookie(key: string, value: string): Promise<void> {
     const cookieOptions = this.buildCookieOptions();
 
-    // Try custom cookie setter first
+    // Try custom cookie setter first (async)
     if (this.context.cookieSetter && typeof this.context.cookieSetter === 'function') {
       try {
-        this.context.cookieSetter(key, value, cookieOptions);
+        await this.context.cookieSetter(key, value, cookieOptions);
         return;
-      } catch (error) {
-        console.warn('Custom cookie setter failed:', error);
+      } catch {
+        // Continue to next method
+      }
+    }
+
+    // Try Next.js cookies() with proper await
+    if (this.context.cookies && typeof this.context.cookies === 'function') {
+      try {
+        const cookieStore = await this.context.cookies();
+        if (cookieStore && typeof cookieStore.set === 'function') {
+          cookieStore.set(key, value, cookieOptions);
+          return;
+        }
+      } catch {
+        // Continue to next method
       }
     }
 
@@ -198,12 +189,12 @@ export class CookieStorageAdapter implements StorageAdapter {
       try {
         const expressOptions = { ...cookieOptions };
         if (expressOptions.maxAge) {
-          expressOptions.maxAge = expressOptions.maxAge * 1000; // Express expects milliseconds
+          expressOptions.maxAge = expressOptions.maxAge * 1000;
         }
         this.context.res.cookie(key, value, expressOptions);
         return;
-      } catch (error) {
-        console.warn('Express cookie setting failed:', error);
+      } catch {
+        // Continue to next method
       }
     }
 
@@ -215,29 +206,42 @@ export class CookieStorageAdapter implements StorageAdapter {
         const cookies = Array.isArray(existingCookies) ? existingCookies : [existingCookies];
         cookies.push(cookieString);
         this.context.res.setHeader('Set-Cookie', cookies);
-      } catch (error) {
-        console.warn('Native setHeader cookie setting failed:', error);
+      } catch {
+        // Final fallback failed
       }
     }
   }
 
-  /**
-   * Remove cookie from server-side
-   */
-  private removeServerCookie(key: string): void {
+  private async removeServerCookie(key: string): Promise<void> {
     const expiredOptions = {
       ...this.buildCookieOptions(),
       expires: new Date(0),
       maxAge: 0,
     };
 
-    // Try custom cookie setter
+    // Try custom cookie setter (async)
     if (this.context.cookieSetter && typeof this.context.cookieSetter === 'function') {
       try {
-        this.context.cookieSetter(key, '', expiredOptions);
+        await this.context.cookieSetter(key, '', expiredOptions);
         return;
-      } catch (error) {
-        console.warn('Custom cookie setter removal failed:', error);
+      } catch {
+        // Continue to next method
+      }
+    }
+
+    // Try Next.js cookies() with proper await
+    if (this.context.cookies && typeof this.context.cookies === 'function') {
+      try {
+        const cookieStore = await this.context.cookies();
+        if (cookieStore && typeof cookieStore.delete === 'function') {
+          cookieStore.delete(key);
+          return;
+        } else if (cookieStore && typeof cookieStore.set === 'function') {
+          cookieStore.set(key, '', expiredOptions);
+          return;
+        }
+      } catch {
+        // Continue to next method
       }
     }
 
@@ -246,8 +250,8 @@ export class CookieStorageAdapter implements StorageAdapter {
       try {
         this.context.res.clearCookie(key, expiredOptions);
         return;
-      } catch (error) {
-        console.warn('Express clearCookie failed:', error);
+      } catch {
+        // Continue to next method
       }
     }
 
@@ -259,8 +263,8 @@ export class CookieStorageAdapter implements StorageAdapter {
         const cookies = Array.isArray(existingCookies) ? existingCookies : [existingCookies];
         cookies.push(cookieString);
         this.context.res.setHeader('Set-Cookie', cookies);
-      } catch (error) {
-        console.warn('Native setHeader cookie removal failed:', error);
+      } catch {
+        // Final cleanup failed
       }
     }
   }
@@ -283,7 +287,6 @@ export class CookieStorageAdapter implements StorageAdapter {
       options.domain = this.options.domain;
     }
 
-    // Remove undefined values
     Object.keys(options).forEach((key) => {
       if (options[key] === undefined) {
         delete options[key];

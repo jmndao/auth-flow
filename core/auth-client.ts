@@ -15,10 +15,6 @@ import { TokenManager } from './token-manager';
 import { ErrorHandler } from './error-handler';
 import { validateConfig, validateLoginCredentials } from '../utils';
 
-/**
- * Simplified authentication client with clean, focused functionality
- * Handles authentication, token management, and HTTP requests
- */
 export class AuthClient implements HttpMethod, AuthMethods {
   private readonly config: ValidatedAuthFlowConfig;
   private readonly tokenManager: TokenManager;
@@ -48,7 +44,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
     } as ValidatedAuthFlowConfig;
 
     this.context = context;
-
     this.tokenManager = new TokenManager(
       this.config.tokens,
       this.config.storage,
@@ -70,33 +65,25 @@ export class AuthClient implements HttpMethod, AuthMethods {
     this.setupInterceptors();
   }
 
-  /**
-   * Setup request and response interceptors for automatic token handling
-   */
   private setupInterceptors(): void {
-    // Request interceptor - add auth header
     this.axiosInstance.interceptors.request.use(
       async (config) => {
-        // Skip auth headers for authentication endpoints
         if (this.isAuthEndpoint(config.url)) {
           return config;
         }
 
-        // Skip if auth header already exists
         if (config.headers?.Authorization) {
           return config;
         }
 
-        // Add access token if available
-        try {
-          const accessToken = await this.tokenManager.getAccessToken();
-          if (accessToken && config.headers) {
-            config.headers.Authorization = `Bearer ${accessToken}`;
-          }
-        } catch (error) {
-          // Continue without auth header if token retrieval fails
-          if (this.config.debugMode) {
-            console.warn('Failed to retrieve access token for request:', error);
+        if (this.tokenManager.hasTokensSync()) {
+          try {
+            const accessToken = await this.tokenManager.getAccessToken();
+            if (accessToken && config.headers) {
+              config.headers.Authorization = `Bearer ${accessToken}`;
+            }
+          } catch {
+            // Continue without auth header if token retrieval fails
           }
         }
 
@@ -105,15 +92,13 @@ export class AuthClient implements HttpMethod, AuthMethods {
       (error) => Promise.reject(error)
     );
 
-    // Response interceptor - handle token refresh
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       async (error) => {
         const authError = this.errorHandler.handleError(error);
 
-        // Attempt token refresh for 401 errors on non-auth endpoints
         if (
-          authError.status === 401 &&
+          this.errorHandler.isTokenExpiredError(authError) &&
           !error.config._retry &&
           !this.isAuthEndpoint(error.config?.url) &&
           (await this.tokenManager.hasTokens())
@@ -123,9 +108,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
           try {
             await this.refreshTokens();
             return this.axiosInstance.request(error.config);
-          } catch (refreshError) {
+          } catch {
             await this.clearTokens();
-            throw this.errorHandler.handleError(refreshError);
+            throw authError;
           }
         }
 
@@ -167,26 +152,22 @@ export class AuthClient implements HttpMethod, AuthMethods {
     validateLoginCredentials(credentials);
 
     try {
-      // Clear existing tokens
       await this.clearTokens();
 
-      // Make login request
       const response = await axios.post(this.getFullUrl(this.config.endpoints.login), credentials, {
         timeout: this.config.timeout,
         baseURL: this.config.baseURL,
         withCredentials: this.config.tokenSource === 'cookies',
       });
 
-      // Extract and store tokens
+      await this.handleSetCookieHeaders(response);
       const tokens = await this.extractTokens(response);
       await this.tokenManager.setTokens(tokens);
 
-      // Trigger callback if provided
       if (this.config.onTokenRefresh) {
         this.config.onTokenRefresh(tokens);
       }
 
-      // Verify tokens were stored successfully
       const verifyTokens = await this.tokenManager.getTokens();
       if (!verifyTokens) {
         throw new Error('Login succeeded but tokens are not accessible');
@@ -203,22 +184,16 @@ export class AuthClient implements HttpMethod, AuthMethods {
    */
   async logout(): Promise<void> {
     try {
-      // Call logout endpoint if configured
       if (this.config.endpoints.logout) {
         try {
           await this.axiosInstance.post(this.config.endpoints.logout);
-        } catch (error) {
+        } catch {
           // Continue with logout even if endpoint call fails
-          if (this.config.debugMode) {
-            console.warn('Logout endpoint call failed:', error);
-          }
         }
       }
 
-      // Clear tokens
       await this.clearTokens();
 
-      // Trigger callback if provided
       if (this.config.onLogout) {
         this.config.onLogout();
       }
@@ -227,42 +202,26 @@ export class AuthClient implements HttpMethod, AuthMethods {
     }
   }
 
-  /**
-   * Check if user is authenticated (synchronous)
-   */
   isAuthenticated(): boolean {
     return this.tokenManager.hasTokensSync();
   }
 
-  /**
-   * Check if valid tokens exist (asynchronous)
-   */
   async hasValidTokens(): Promise<boolean> {
     return this.tokenManager.hasValidTokens();
   }
 
-  /**
-   * Get current token pair
-   */
   async getTokens(): Promise<TokenPair | null> {
     return this.tokenManager.getTokens();
   }
 
-  /**
-   * Set token pair manually
-   */
   async setTokens(tokens: TokenPair): Promise<void> {
     await this.tokenManager.setTokens(tokens);
   }
 
-  /**
-   * Clear all tokens
-   */
   async clearTokens(): Promise<void> {
     await this.tokenManager.clearTokens();
   }
 
-  // HTTP Methods
   async get<T = any>(url: string, config?: RequestConfig): Promise<LoginResponse<T>> {
     return this.request<T>('get', url, undefined, config);
   }
@@ -291,9 +250,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
     return this.request<T>('options', url, undefined, config);
   }
 
-  /**
-   * Generic request method with error handling
-   */
   private async request<T = any>(
     method: string,
     url: string,
@@ -385,57 +341,57 @@ export class AuthClient implements HttpMethod, AuthMethods {
     return { accessToken, refreshToken };
   }
 
-  /**
-   * Extract tokens from cookies (simplified approach)
-   */
   private async extractTokensFromCookies(response: AxiosResponse): Promise<TokenPair> {
-    // Handle server-side cookie setting
     if (typeof window === 'undefined' && this.context.cookieSetter) {
-      this.handleSetCookieHeaders(response);
+      await this.handleSetCookieHeaders(response);
     }
 
-    // Wait briefly for cookies to be set
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    // Try to get tokens from storage
-    const tokens = await this.tokenManager.getTokens();
-    if (tokens && tokens.accessToken && tokens.refreshToken) {
-      return tokens;
+    try {
+      const tokens = await this.tokenManager.getTokens();
+      if (tokens && tokens.accessToken && tokens.refreshToken) {
+        return tokens;
+      }
+    } catch {
+      // Continue to fallback
     }
 
-    // Fallback to body extraction
     try {
       return this.extractTokensFromBody(response);
-    } catch (error) {
-      console.error('Failed to extract tokens from cookies or response body:', error);
+    } catch {
       throw new Error('Failed to extract tokens from cookies or response body');
     }
   }
 
-  /**
-   * Handle Set-Cookie headers for server-side contexts
-   */
-  private handleSetCookieHeaders(response: AxiosResponse): void {
+  private async handleSetCookieHeaders(response: AxiosResponse): Promise<void> {
+    if (typeof window !== 'undefined' || !this.context.cookieSetter) return;
+
     const setCookieHeaders = response.headers['set-cookie'];
-    if (!setCookieHeaders || !this.context.cookieSetter) return;
+    if (!setCookieHeaders) return;
+
+    try {
+      await this.proxySetCookieHeaders(setCookieHeaders);
+    } catch {
+      // Silently continue if cookie processing fails
+    }
+  }
+
+  private async proxySetCookieHeaders(setCookieHeaders: string[]): Promise<void> {
+    if (!this.context.cookieSetter) return;
 
     for (const cookieHeader of setCookieHeaders) {
       try {
         const parsed = this.parseSetCookieHeader(cookieHeader);
-        if (parsed) {
-          this.context.cookieSetter(parsed.name, parsed.value, parsed.options);
+        if (parsed && this.context.cookieSetter) {
+          await this.context.cookieSetter(parsed.name, parsed.value, parsed.options);
         }
-      } catch (error) {
-        if (this.config.debugMode) {
-          console.warn('Failed to parse cookie header:', cookieHeader, error);
-        }
+      } catch {
+        // Continue with next cookie if parsing fails
       }
     }
   }
 
-  /**
-   * Parse Set-Cookie header string
-   */
   private parseSetCookieHeader(cookieHeader: string): {
     name: string;
     value: string;

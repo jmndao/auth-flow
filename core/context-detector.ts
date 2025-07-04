@@ -4,9 +4,6 @@ export class ContextDetector {
   private static cachedContext: AuthContext | null = null;
   private static detectionAttempted = false;
 
-  /**
-   * Automatically detects the runtime context and provides appropriate cookie handling
-   */
   static getAutoContext(): AuthContext {
     if (this.detectionAttempted && this.cachedContext) {
       return this.cachedContext;
@@ -29,41 +26,19 @@ export class ContextDetector {
     return context;
   }
 
-  /**
-   * Detects Next.js App Router cookies() function
-   */
-  private static detectNextJSCookies(): (() => any) | undefined {
+  private static detectNextJSCookies(): (() => Promise<any>) | undefined {
     try {
       const nextHeaders = require('next/headers');
       if (nextHeaders?.cookies && typeof nextHeaders.cookies === 'function') {
-        return () => {
+        return async () => {
           try {
-            return nextHeaders.cookies();
+            return await nextHeaders.cookies();
           } catch {
-            console.warn('Next.js cookies() called outside request context');
-            return null;
-          }
-        };
-      }
-    } catch {
-      // Next.js not available or not App Router
-    }
-    return undefined;
-  }
-
-  /**
-   * Detects Next.js App Router headers() function
-   */
-  private static detectNextJSHeaders(): (() => any) | undefined {
-    try {
-      const nextHeaders = require('next/headers');
-      if (nextHeaders?.headers && typeof nextHeaders.headers === 'function') {
-        return () => {
-          try {
-            return nextHeaders.headers();
-          } catch {
-            console.warn('Next.js headers() called outside request context');
-            return null;
+            try {
+              return nextHeaders.cookies();
+            } catch {
+              return null;
+            }
           }
         };
       }
@@ -73,37 +48,53 @@ export class ContextDetector {
     return undefined;
   }
 
-  /**
-   * Creates a cookie setter for Next.js
-   */
+  private static detectNextJSHeaders(): (() => Promise<any>) | undefined {
+    try {
+      const nextHeaders = require('next/headers');
+      if (nextHeaders?.headers && typeof nextHeaders.headers === 'function') {
+        return async () => {
+          try {
+            return await nextHeaders.headers();
+          } catch {
+            try {
+              return nextHeaders.headers();
+            } catch {
+              return null;
+            }
+          }
+        };
+      }
+    } catch {
+      // Next.js not available
+    }
+    return undefined;
+  }
+
   private static createNextJSCookieSetter():
-    | ((name: string, value: string, options?: any) => void)
+    | ((name: string, value: string, options?: any) => Promise<void>)
     | undefined {
     const cookiesFn = this.detectNextJSCookies();
     if (!cookiesFn) return undefined;
 
-    return (name: string, value: string, options: any = {}) => {
+    return async (name: string, value: string, options: any = {}) => {
       try {
-        const cookieStore = cookiesFn();
+        const cookieStore = await cookiesFn();
         if (cookieStore?.set && typeof cookieStore.set === 'function') {
           cookieStore.set(name, value, {
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
             path: '/',
-            maxAge: 60 * 60 * 24 * 7, // 7 days default
+            maxAge: 60 * 60 * 24 * 7,
             httpOnly: false,
             ...options,
           });
         }
-      } catch (error) {
-        console.warn(`Failed to set Next.js cookie ${name}:`, (error as Error).message);
+      } catch {
+        // Silently fail to prevent console pollution
       }
     };
   }
 
-  /**
-   * Detects Express.js or similar server context
-   */
   private static detectExpressContext(context: AuthContext): void {
     try {
       if (global && (global as any).req && (global as any).res) {
@@ -115,24 +106,15 @@ export class ContextDetector {
     }
   }
 
-  /**
-   * Reset cached context (useful for testing)
-   */
   static resetContext(): void {
     this.cachedContext = null;
     this.detectionAttempted = false;
   }
 
-  /**
-   * Check if we're in a server environment
-   */
   static isServer(): boolean {
     return typeof window === 'undefined';
   }
 
-  /**
-   * Check if we're in a Next.js environment
-   */
   static isNextJS(): boolean {
     try {
       require('next/headers');
@@ -142,9 +124,6 @@ export class ContextDetector {
     }
   }
 
-  /**
-   * Get environment info for debugging
-   */
   static getEnvironmentInfo() {
     return {
       isServer: this.isServer(),
