@@ -40,6 +40,11 @@ export class CookieManager implements StorageAdapter {
   }
 
   async get(key: string): Promise<string | null> {
+    if (this.options.debugMode) {
+      console.log(`Cookie get: ${key} (server: ${this.isServer})`);
+    }
+
+    // First check temporary store for immediate access
     if (this.temporaryStore.has(key)) {
       const value = this.temporaryStore.get(key)!;
       if (this.options.debugMode) {
@@ -48,10 +53,38 @@ export class CookieManager implements StorageAdapter {
       return value;
     }
 
-    const cookieValue = await this.getServerCookie(key);
-    if (cookieValue) return cookieValue;
+    // Then try server or client cookie access
+    if (this.isServer) {
+      const cookieValue = await this.getServerCookie(key);
+      if (cookieValue) {
+        // Store in temporary store for subsequent access
+        this.temporaryStore.set(key, cookieValue);
+        return cookieValue;
+      }
+    } else {
+      // Client-side cookie access
+      const cookieValue = this.getClientCookie(key);
+      if (cookieValue) {
+        this.temporaryStore.set(key, cookieValue);
+        return cookieValue;
+      }
+    }
 
+    // Finally try fallback tokens
     return this.tryFallbackTokens(key);
+  }
+
+  private getClientCookie(key: string): string | null {
+    if (typeof document === 'undefined') return null;
+
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [cookieKey, cookieValue] = cookie.trim().split('=');
+      if (cookieKey === key) {
+        return decodeURIComponent(cookieValue);
+      }
+    }
+    return null;
   }
 
   set(key: string, value: string): void {
