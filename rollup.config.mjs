@@ -1,9 +1,11 @@
+// rollup.config.mjs - Main build (optimized)
 import typescript from '@rollup/plugin-typescript';
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import { terser } from 'rollup-plugin-terser';
 
 const isProduction = process.env.NODE_ENV === 'production';
+const isDevelopment = process.env.ROLLUP_WATCH;
 
 export default [
   // ES Module build
@@ -12,7 +14,7 @@ export default [
     output: {
       file: 'dist/index.esm.js',
       format: 'es',
-      sourcemap: true,
+      sourcemap: isDevelopment, // Only in development
     },
     external: ['axios'],
     plugins: [
@@ -22,8 +24,15 @@ export default [
         tsconfig: './tsconfig.json',
         declaration: true,
         declarationDir: 'dist',
+        declarationMap: isDevelopment, // Only in development
       }),
-      isProduction && terser(),
+      isProduction &&
+        terser({
+          compress: {
+            drop_console: true,
+            drop_debugger: true,
+          },
+        }),
     ].filter(Boolean),
   },
   // CommonJS build
@@ -32,7 +41,7 @@ export default [
     output: {
       file: 'dist/index.js',
       format: 'cjs',
-      sourcemap: true,
+      sourcemap: isDevelopment, // Only in development
       exports: 'named',
     },
     external: ['axios'],
@@ -42,8 +51,15 @@ export default [
       typescript({
         tsconfig: './tsconfig.json',
         declaration: false,
+        declarationMap: false,
       }),
-      isProduction && terser(),
+      isProduction &&
+        terser({
+          compress: {
+            drop_console: true,
+            drop_debugger: true,
+          },
+        }),
     ].filter(Boolean),
   },
 ];

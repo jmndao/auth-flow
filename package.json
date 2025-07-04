@@ -6,17 +6,23 @@
   "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist",
+    "dist/*.js",
+    "dist/*.d.ts",
+    "dist/types",
+    "dist/core",
+    "dist/adapters",
+    "dist/utils",
+    "dist/middleware",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "rollup -c",
+    "build": "npm run build:dev",
+    "build:dev": "npm run clean && rollup -c && rollup -c rollup.config.v2.mjs && rollup -c rollup.config.middleware.mjs",
+    "build:prod": "npm run clean && NODE_ENV=production rollup -c && NODE_ENV=production rollup -c rollup.config.v2.mjs && NODE_ENV=production rollup -c rollup.config.middleware.mjs",
     "build:watch": "rollup -c -w",
-    "build:v2": "rollup -c rollup.config.v2.mjs",
-    "build:middleware": "rollup -c rollup.config.middleware.mjs",
-    "build:all": "npm run clean && npm run build && npm run build:v2 && npm run build:middleware",
+    "build:all": "npm run clean && npm run build:prod",
     "verify:build": "node scripts/verify-build.js",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -37,8 +43,10 @@
     "dev:middleware": "rollup -c rollup.config.middleware.mjs -w",
     "pretest": "npm run type-check:all && npm run lint",
     "prebuild": "npm run clean && npm run pretest && npm run test:ci",
-    "prepublishOnly": "npm run prebuild && npm run build:all && npm run verify:build",
+    "prepublishOnly": "npm run prebuild && npm run build:prod && npm run verify:build",
     "clean": "rimraf dist coverage",
+    "size-check": "npm run build:prod && npm run check-sizes",
+    "check-sizes": "echo 'Bundle sizes:' && ls -lah dist/*.js | grep -v '.map'",
     "changelog": "node scripts/changelog.js",
     "version": "node scripts/version.js && git add .",
     "release:patch": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version patch && npm publish && git push --follow-tags",
@@ -117,7 +125,8 @@
     "rollup-plugin-terser": "^7.0.0",
     "ts-jest": "^29.1.0",
     "typescript": "^5.3.0",
-    "typedoc": "^0.25.0"
+    "typedoc": "^0.25.0",
+    "bundlesize": "^0.18.1"
   },
   "peerDependencies": {
     "axios": ">=1.0.0"
@@ -167,5 +176,19 @@
     "last 2 versions",
     "not dead",
     "not ie <= 11"
+  ],
+  "bundlesize": [
+    {
+      "path": "./dist/index.js",
+      "maxSize": "70KB"
+    },
+    {
+      "path": "./dist/index-v2.js",
+      "maxSize": "140KB"
+    },
+    {
+      "path": "./dist/middleware.js",
+      "maxSize": "10KB"
+    }
   ]
 }
