@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- optimize auth performance and reduce login delays (d28f127)
+
 ## [2.0.10] - 2025-07-04
 
 ### Bug Fixes
