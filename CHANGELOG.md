@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- resolve Next.js cookie proxying and remove unused methods (9118c93)
+
 ## [2.0.6] - 2025-07-04
 
 ### Features
