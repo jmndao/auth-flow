@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Code Refactoring
+
+- enhance token validation and refresh logic in AuthClient and middleware (38f917a)
+
 ## [2.1.0] - 2025-07-05
 
 ### Documentation
