@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Documentation
+
+- update CHANGELOG for v2.1.0 (38c461f)
+
 ## [2.1.0] - 2025-07-05
 
 ### Added
