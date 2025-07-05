@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+- clean up codebase and update docs (fd3e12c)
+
+### Documentation
+
+- update CHANGELOG (0a8fc21)
+
+### Other Changes
+
+- 2.0.7 (67706ac)
+
 ## [2.0.7] - 2025-07-05
 
 ### Features
