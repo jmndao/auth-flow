@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+- clean up codebase and update docs (fd3e12c)
+
 ## [2.0.6] - 2025-07-04
 
 ### Features
