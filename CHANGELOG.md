@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Code Refactoring
+
+- update CookieManager and add TokenManager integration tests (41d4327)
+
 ## [2.0.16] - 2025-07-04
 
 ### Features
