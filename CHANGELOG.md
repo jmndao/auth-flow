@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.17] - 2025-07-05
 
 ### Code Refactoring
 
