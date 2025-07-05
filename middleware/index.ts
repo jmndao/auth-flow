@@ -73,6 +73,30 @@ function getTokenNames(authFlow: AuthFlowInstance): { access: string; refresh: s
 }
 
 /**
+ * Attempts to refresh tokens using the auth flow instance
+ */
+async function refreshTokensViaAuthFlow(
+  authFlow: AuthFlowInstance,
+  _refreshToken?: string
+): Promise<{ accessToken?: string; error?: string }> {
+  try {
+    // Use the auth flow's internal refresh mechanism
+    await (authFlow as any).performTokenRefresh();
+
+    // Get the new access token from the auth flow
+    const newAccessToken = await (authFlow as any)?.getAccessToken();
+
+    if (newAccessToken) {
+      return { accessToken: newAccessToken };
+    } else {
+      return { error: 'No access token after refresh' };
+    }
+  } catch (error: any) {
+    return { error: error.message || 'Token refresh failed' };
+  }
+}
+
+/**
  * Creates authentication middleware for Next.js
  *
  * Note: This function requires Next.js environment.
@@ -81,7 +105,6 @@ function getTokenNames(authFlow: AuthFlowInstance): { access: string; refresh: s
  * See: https://github.com/jmndao/auth-flow/blob/main/docs/middleware-setup.md
  */
 export function createAuthMiddleware(authFlow: AuthFlowInstance, config: MiddlewareConfig = {}) {
-  // Check if Next.js is available
   let NextResponse: any;
 
   try {
@@ -98,12 +121,12 @@ export function createAuthMiddleware(authFlow: AuthFlowInstance, config: Middlew
   return async function middleware(request: any) {
     const path = request.nextUrl.pathname;
 
-    // Check if path should be protected
+    // Skip authentication for public paths
     if (!shouldProtectPath(path, config)) {
       return NextResponse.next();
     }
 
-    // Get tokens from cookies
+    // Get tokens from request cookies
     const accessToken = request.cookies.get(tokenNames.access)?.value;
     const refreshToken = request.cookies.get(tokenNames.refresh)?.value;
 
@@ -139,14 +162,30 @@ export function createAuthMiddleware(authFlow: AuthFlowInstance, config: Middlew
       }
     }
 
-    // Access token is missing or expired - redirect to login for token refresh
-    // Note: Token refresh in middleware is not recommended for production
-    const response = config.redirectUrl
-      ? NextResponse.redirect(new URL(config.redirectUrl, request.url))
-      : new NextResponse('Unauthorized', { status: 401 });
+    // Access token is missing or expired - attempt refresh
+    const refreshResult = await refreshTokensViaAuthFlow(authFlow, refreshToken);
 
-    // Clear invalid access token but keep refresh token
-    response.cookies.delete(tokenNames.access);
+    if (refreshResult.error || !refreshResult.accessToken) {
+      // Token refresh failed - redirect to login
+      const response = config.redirectUrl
+        ? NextResponse.redirect(new URL(config.redirectUrl, request.url))
+        : new NextResponse('Unauthorized', { status: 401 });
+
+      response.cookies.delete(tokenNames.access);
+      response.cookies.delete(tokenNames.refresh);
+      return response;
+    }
+
+    // Token refresh successful - set new access token and continue
+    const response = NextResponse.next();
+
+    response.cookies.set(tokenNames.access, refreshResult.accessToken, {
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60, // 1 hour
+    });
+
     return response;
   };
 }
@@ -187,6 +226,7 @@ export async function createServerAuthChecker(authFlow: AuthFlowInstance) {
 
 /**
  * Creates wrapper for server actions with authentication
+ * This enables token management in server action contexts where cookies can be modified
  */
 export function createServerActionWrapper(authFlow: AuthFlowInstance) {
   return function withAuth<T extends any[], R>(action: (...args: T) => Promise<R>) {
@@ -202,7 +242,6 @@ export function createServerActionWrapper(authFlow: AuthFlowInstance) {
           options: any = {}
         ) => {
           try {
-            // Dynamic import to avoid build-time dependency
             const nextHeaders = await require('next/headers');
             const cookieStore = await nextHeaders.cookies();
             cookieStore.set(key, value, {
@@ -219,7 +258,6 @@ export function createServerActionWrapper(authFlow: AuthFlowInstance) {
 
         cookieManager.options.externalRemover = async (key: string) => {
           try {
-            // Dynamic import to avoid build-time dependency
             const nextHeaders = await require('next/headers');
             const cookieStore = await nextHeaders.cookies();
             cookieStore.delete(key);

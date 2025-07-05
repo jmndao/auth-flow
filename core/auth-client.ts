@@ -294,19 +294,43 @@ export class AuthClient implements HttpMethod, AuthMethods {
    * Checks if stored tokens are valid and not expired
    */
   async hasValidTokens(): Promise<boolean> {
-    const tokens = await this.tokenManager.getTokens();
-    if (!tokens) return false;
+    const accessToken = await this.tokenManager.getAccessToken();
+    const refreshToken = await this.tokenManager.getRefreshToken();
 
-    // Check if both tokens exist and are non-empty
-    if (!tokens.accessToken || !tokens.refreshToken) {
+    if (!refreshToken) {
       return false;
     }
 
-    // For JWT tokens, check if refresh token is expired
-    // For non-JWT tokens, just check they exist
-    if (tokens.refreshToken.includes('.')) {
-      // Looks like a JWT, check expiration
-      if (this.tokenManager.isTokenExpired(tokens.refreshToken)) {
+    if (this.tokenManager.isTokenExpired(refreshToken)) {
+      await this.clearTokens();
+      return false;
+    }
+
+    if (!accessToken) {
+      if (typeof window === 'undefined') {
+        return false;
+      }
+
+      try {
+        await this.performTokenRefresh();
+        return true;
+      } catch (error) {
+        console.error('Error during token validation:', error);
+        await this.clearTokens();
+        return false;
+      }
+    }
+
+    if (accessToken.includes('.') && this.tokenManager.isTokenExpired(accessToken)) {
+      if (typeof window === 'undefined') {
+        return false;
+      }
+
+      try {
+        await this.performTokenRefresh();
+        return true;
+      } catch {
+        console.error('Error during token validation');
         await this.clearTokens();
         return false;
       }
