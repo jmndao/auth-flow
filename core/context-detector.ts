@@ -34,19 +34,20 @@ export class ContextDetector {
   }
 
   /**
-   * Detects Next.js App Router cookies() function
+   * Detects Next.js App Router cookies() function with proper async handling
    */
-  private static detectNextJSCookies(): (() => any) | undefined {
+  private static detectNextJSCookies(): (() => Promise<any>) | undefined {
     try {
       // Try to dynamically import Next.js cookies
       const nextHeaders = require('next/headers');
       if (nextHeaders?.cookies && typeof nextHeaders.cookies === 'function') {
-        return () => {
+        return async () => {
           try {
-            return nextHeaders.cookies();
-          } catch {
+            // Always await the cookies() function call
+            return await nextHeaders.cookies();
+          } catch (error) {
             // cookies() called outside request context
-            console.warn('[AuthFlow] Next.js cookies() called outside request context');
+            console.warn('[AuthFlow] Next.js cookies() called outside request context:', error);
             return null;
           }
         };
@@ -58,17 +59,18 @@ export class ContextDetector {
   }
 
   /**
-   * Detects Next.js App Router headers() function
+   * Detects Next.js App Router headers() function with proper async handling
    */
-  private static detectNextJSHeaders(): (() => any) | undefined {
+  private static detectNextJSHeaders(): (() => Promise<any>) | undefined {
     try {
       const nextHeaders = require('next/headers');
       if (nextHeaders?.headers && typeof nextHeaders.headers === 'function') {
-        return () => {
+        return async () => {
           try {
-            return nextHeaders.headers();
-          } catch {
-            console.warn('[AuthFlow] Next.js headers() called outside request context');
+            // Always await the headers() function call
+            return await nextHeaders.headers();
+          } catch (error) {
+            console.warn('[AuthFlow] Next.js headers() called outside request context:', error);
             return null;
           }
         };
@@ -80,17 +82,18 @@ export class ContextDetector {
   }
 
   /**
-   * Creates a cookie setter for Next.js
+   * Creates an async cookie setter for Next.js that properly awaits cookies()
    */
   private static createNextJSCookieSetter():
-    | ((name: string, value: string, options?: any) => void)
+    | ((name: string, value: string, options?: any) => Promise<void>)
     | undefined {
     const cookiesFn = this.detectNextJSCookies();
     if (!cookiesFn) return undefined;
 
-    return (name: string, value: string, options: any = {}) => {
+    return async (name: string, value: string, options: any = {}) => {
       try {
-        const cookieStore = cookiesFn();
+        // Await the cookies() function call
+        const cookieStore = await cookiesFn();
         if (cookieStore?.set && typeof cookieStore.set === 'function') {
           cookieStore.set(name, value, {
             secure: process.env.NODE_ENV === 'production',
@@ -103,6 +106,7 @@ export class ContextDetector {
         }
       } catch (error) {
         console.warn(`[AuthFlow] Failed to set Next.js cookie ${name}:`, error);
+        throw error; // Re-throw so caller can handle the error
       }
     };
   }
@@ -163,5 +167,57 @@ export class ContextDetector {
       hasGlobal: typeof global !== 'undefined',
       nodeEnv: process.env.NODE_ENV,
     };
+  }
+
+  /**
+   * Creates a safer context for Next.js server actions that handles async properly
+   */
+  static createServerActionContext(): AuthContext {
+    const context: AuthContext = {};
+
+    if (this.isNextJS()) {
+      // Return async functions that properly await Next.js APIs
+      context.cookies = async () => {
+        try {
+          const { cookies } = require('next/headers');
+          return await cookies();
+        } catch (error) {
+          console.warn('[AuthFlow] Failed to get Next.js cookies in server action:', error);
+          return null;
+        }
+      };
+
+      context.headers = async () => {
+        try {
+          const { headers } = require('next/headers');
+          return await headers();
+        } catch (error) {
+          console.warn('[AuthFlow] Failed to get Next.js headers in server action:', error);
+          return null;
+        }
+      };
+
+      context.cookieSetter = async (name: string, value: string, options: any = {}) => {
+        try {
+          const { cookies } = require('next/headers');
+          const cookieStore = await cookies();
+          if (cookieStore?.set) {
+            cookieStore.set(name, value, {
+              secure: process.env.NODE_ENV === 'production',
+              sameSite: 'lax',
+              path: '/',
+              maxAge: 60 * 60 * 24 * 7, // 7 days default
+              httpOnly: false,
+              ...options,
+            });
+          }
+        } catch (error) {
+          console.warn(`[AuthFlow] Failed to set cookie ${name} in server action:`, error);
+          throw error;
+        }
+      };
+    }
+
+    return context;
   }
 }

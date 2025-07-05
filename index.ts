@@ -2,12 +2,16 @@ import type { AuthFlowConfig, AuthContext } from './types';
 import { AuthClient } from './core/auth-client';
 import { SingleTokenAuthClient } from './core/single-token-auth';
 
-// Main factory function - works exactly like before
+/**
+ * Main factory function for creating standard AuthFlow instances
+ */
 export function createAuthFlow(config: AuthFlowConfig, context?: AuthContext) {
   return new AuthClient(config, context);
 }
 
-// New single token auth for backends without refresh tokens
+/**
+ * Creates single token authentication client for backends without refresh tokens
+ */
 export function createSingleTokenAuth(config: {
   baseURL: string;
   token: { access: string };
@@ -29,7 +33,9 @@ export function createSingleTokenAuth(config: {
   return new SingleTokenAuthClient(config);
 }
 
-// Preset configurations for common scenarios
+/**
+ * Preset configurations for common single token scenarios
+ */
 export const singleTokenPresets = {
   jwtOnly: (baseURL: string, tokenField: string = 'accessToken') => ({
     baseURL,
@@ -53,7 +59,9 @@ export const singleTokenPresets = {
   }),
 };
 
-// Configuration helpers
+/**
+ * Configuration helper for cookie-based authentication
+ */
 export function createCookieConfig(
   baseURL: string,
   options?: {
@@ -62,7 +70,6 @@ export function createCookieConfig(
       waitForCookies?: number;
       fallbackToBody?: boolean;
       retryCount?: number;
-      debugMode?: boolean;
     };
   }
 ): AuthFlowConfig {
@@ -87,35 +94,44 @@ export function createCookieConfig(
   };
 }
 
-// Diagnostic utility
+/**
+ * Diagnostic utility for troubleshooting cookie-related issues
+ */
 export async function diagnoseCookieIssues(credentials: any, config: AuthFlowConfig) {
-  console.log('Cookie Diagnostic Check');
-  console.log('======================');
-
   const auth = createAuthFlow({
     ...config,
     storage: {
       type: 'cookies',
-      options: { debugMode: true },
+      options: {},
     },
   });
 
   try {
-    console.log('Testing login...');
     await auth.login(credentials);
 
-    console.log('Checking token retrieval...');
     const tokens = await auth.getTokens();
-    console.log('Tokens found:', !!tokens);
 
     if (tokens) {
-      console.log('Access token length:', tokens.accessToken.length);
-      console.log('Refresh token length:', tokens.refreshToken.length);
+      return {
+        success: true,
+        hasTokens: true,
+        accessTokenLength: tokens.accessToken.length,
+        refreshTokenLength: tokens.refreshToken.length,
+        isAuthenticated: auth.isAuthenticated(),
+      };
+    } else {
+      return {
+        success: false,
+        hasTokens: false,
+        isAuthenticated: auth.isAuthenticated(),
+        error: 'No tokens found after login',
+      };
     }
-
-    console.log('Authentication status:', auth.isAuthenticated());
   } catch (error) {
-    console.error('Diagnostic failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
   }
 }
 

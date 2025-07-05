@@ -18,17 +18,9 @@ import { RetryManager } from './retry-manager';
 import { AuthClient } from './auth-client';
 
 /**
- * AuthFlowV2Client - Production-ready authentication client with comprehensive features
- *
- * Built-in Features:
- * - Request caching with intelligent strategies
- * - Automatic request deduplication
- * - Circuit breaker pattern for resilience
- * - Performance monitoring and metrics
- * - Advanced security features
- * - Health monitoring with recovery
- * - Sophisticated retry strategies
- * - Comprehensive debugging tools
+ * Production-ready authentication client with comprehensive features including
+ * request caching, deduplication, circuit breaker, performance monitoring,
+ * security features, health monitoring, and sophisticated retry strategies
  */
 export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   private readonly coreAuth: AuthClient;
@@ -44,25 +36,23 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   private readonly context: AuthContext;
 
   private activeProvider = 'primary';
-  private debugMode = false;
   private offlineMode = false;
   private readonly analyticsEvents: AnalyticsEvent[] = [];
+  private refreshPromise: Promise<void> | null = null;
+  private isRefreshing = false;
 
   constructor(config: AuthFlowV2Config, context?: AuthContext) {
     this.config = this.normalizeConfig(config);
     this.context = context || {};
-    this.debugMode = config.debugMode || false;
 
-    // Initialize core authentication client with enhanced context
     this.coreAuth = new AuthClient(config, this.enhanceContext(this.context));
 
-    // Create HTTP client
     this.httpClient = axios.create({
       baseURL: config.baseURL,
       timeout: config.timeout || 10000,
     });
 
-    // Initialize all components
+    // Initialize feature modules
     this.cache = new RequestCache(this.config.caching);
     this.deduplicator = new RequestDeduplicator();
     this.circuitBreaker = new CircuitBreaker(this.config.circuitBreaker);
@@ -74,31 +64,97 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     this.healthMonitor = new HealthMonitor(this.config.health, this.httpClient);
     this.retryManager = new RetryManager(this.config.retry);
 
-    // Setup request/response handling
-    this.setupRequestHandling();
-
-    // Start monitoring
+    this.setupInterceptors();
     this.startMonitoring();
-
-    if (this.debugMode) {
-      console.log('AuthFlow v2.0 initialized with features:', this.getEnabledFeatures());
-    }
   }
 
   /**
-   * Enhances the context with additional Next.js specific handling
+   * Sets up HTTP interceptors for token management and error handling
+   */
+  private setupInterceptors(): void {
+    // Request interceptor: Add authorization header
+    this.httpClient.interceptors.request.use(
+      async (config) => {
+        try {
+          const accessToken = await this.coreAuth.getAccessToken();
+
+          if (accessToken && config.headers) {
+            config.headers['Authorization'] = `Bearer ${accessToken}`;
+          }
+        } catch (error) {
+          console.error('Token retrieval failed:', error);
+        }
+
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+
+    // Response interceptor: Handle 401 errors and automatic token refresh
+    this.httpClient.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error.config;
+
+        if (error.response?.status === 401 && !originalRequest._retry && !this.isRefreshing) {
+          originalRequest._retry = true;
+
+          try {
+            const refreshToken = await this.coreAuth.getRefreshToken();
+
+            if (!refreshToken || (this.coreAuth as any).tokenManager.isTokenExpired(refreshToken)) {
+              await this.coreAuth.clearTokens();
+              throw error;
+            }
+
+            this.isRefreshing = true;
+
+            this.refreshPromise ??= this.performTokenRefresh().finally(() => {
+              this.refreshPromise = null;
+              this.isRefreshing = false;
+            });
+
+            await this.refreshPromise;
+
+            const newAccessToken = await this.coreAuth.getAccessToken();
+
+            if (newAccessToken && originalRequest.headers) {
+              originalRequest.headers['Authorization'] = `Bearer ${newAccessToken}`;
+            }
+
+            return this.httpClient.request(originalRequest);
+          } catch {
+            this.isRefreshing = false;
+            await this.coreAuth.clearTokens();
+            throw error;
+          }
+        }
+
+        throw error;
+      }
+    );
+  }
+
+  /**
+   * Performs token refresh using the core authentication client
+   */
+  private async performTokenRefresh(): Promise<void> {
+    await this.coreAuth.performTokenRefresh();
+  }
+
+  /**
+   * Enhances context with framework-specific helpers
    */
   private enhanceContext(context: AuthContext): AuthContext {
     const enhanced = { ...context };
 
-    // Add headers function if available in Next.js environment
+    // Try to add Next.js headers if available and not provided
     if (typeof window === 'undefined' && !enhanced.headers) {
       try {
-        // Dynamically import Next.js headers if available
         const { headers } = require('next/headers');
         enhanced.headers = headers;
       } catch {
-        // Next.js headers not available, continue without it
+        // Next.js headers not available
       }
     }
 
@@ -106,7 +162,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   }
 
   /**
-   * Normalizes configuration with defaults
+   * Normalizes configuration with sensible defaults
    */
   private normalizeConfig(config: AuthFlowV2Config): AuthFlowV2Config {
     return {
@@ -162,15 +218,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   }
 
   /**
-   * Sets up request and response handling without using interceptors
-   */
-  private setupRequestHandling(): void {
-    // We'll handle this in the request method instead of interceptors
-    // This avoids all the TypeScript issues with Axios interceptors
-  }
-
-  /**
-   * Starts monitoring services
+   * Starts monitoring services if enabled
    */
   private startMonitoring(): void {
     if (this.config.health?.enabled) {
@@ -178,8 +226,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     }
   }
 
-  // Core Authentication Methods (delegate to v1.x client)
-
+  // Authentication methods - delegate to core auth client
   async login<TUser = any, TCredentials = any>(credentials: TCredentials): Promise<TUser> {
     const result = await this.coreAuth.login<TUser, TCredentials>(credentials);
 
@@ -218,8 +265,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     return this.coreAuth.clearTokens();
   }
 
-  // HTTP Methods with enhanced context support
-
+  // HTTP methods with caching, deduplication, and circuit breaker
   async get<T = any>(url: string, config?: V2RequestConfig): Promise<T> {
     return this.request<T>('GET', url, undefined, config);
   }
@@ -241,7 +287,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   }
 
   /**
-   * Request method with improved cookie context handling
+   * Makes HTTP request with all v2 features (caching, deduplication, circuit breaker, retry)
    */
   private async request<T>(
     method: string,
@@ -251,7 +297,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   ): Promise<T> {
     const startTime = Date.now();
 
-    // Check cache first (for GET requests)
+    // Check cache for GET requests
     if (method === 'GET' && this.config.caching?.enabled) {
       const cached = this.cache.get(url, method, data);
       if (cached) {
@@ -261,22 +307,15 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
       this.cache.recordMiss();
     }
 
-    // Execute with deduplication
+    // Execute with deduplication, circuit breaker, and retry
     return this.deduplicator.execute(
       method,
       url,
       async () => {
-        // Execute with circuit breaker
         return this.circuitBreaker.execute(async () => {
-          // Execute with retry
           return this.retryManager.execute(async () => {
-            // Prepare request config with enhanced context
             const requestConfig = await this.prepareRequestConfig(method, url, data, config);
-
-            // Make the actual HTTP request
             const response = await this.httpClient.request(requestConfig);
-
-            // Handle successful response
             this.handleSuccessfulResponse(response, startTime);
 
             // Cache successful GET responses
@@ -293,7 +332,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   }
 
   /**
-   * Prepares request configuration with security headers and enhanced context
+   * Prepares request configuration with security headers
    */
   private async prepareRequestConfig(
     method: string,
@@ -301,7 +340,6 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     data?: any,
     config?: V2RequestConfig
   ): Promise<any> {
-    // Start with base config
     const requestConfig: any = {
       method,
       url,
@@ -309,27 +347,13 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
       ...config,
     };
 
-    // Prepare headers as plain object
     let headers: Record<string, string> = {};
 
-    // Copy existing headers
     if (config?.headers) {
       headers = { ...config.headers };
     }
 
-    // Add authentication header with improved token retrieval
-    try {
-      const accessToken = await this.coreAuth.getTokens();
-      if (accessToken?.accessToken) {
-        headers['Authorization'] = `Bearer ${accessToken.accessToken}`;
-      }
-    } catch (error) {
-      if (this.debugMode) {
-        console.warn('Failed to get tokens for request:', error);
-      }
-    }
-
-    // Add security headers
+    // Add security headers if enabled
     if (this.config.security?.csrf?.enabled) {
       headers = await this.securityManager.addCSRFHeader(headers);
     }
@@ -343,19 +367,16 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
       );
     }
 
-    // Set headers on config
     requestConfig.headers = headers;
-
     return requestConfig;
   }
 
   /**
-   * Handles successful responses
+   * Handles successful response and records metrics
    */
   private handleSuccessfulResponse(response: AxiosResponse, startTime: number): void {
     const responseTime = Date.now() - startTime;
 
-    // Record performance metrics
     this.performanceMonitor.recordRequest(
       response.config.url || '',
       response.config.method?.toUpperCase() || 'GET',
@@ -364,7 +385,6 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
       { cacheHit: false }
     );
 
-    // Record analytics
     if (this.config.analytics?.enabled) {
       this.recordAnalyticsEvent('api_request_success', {
         url: response.config.url,
@@ -375,8 +395,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     }
   }
 
-  // Performance Monitoring Methods
-
+  // Performance and monitoring methods
   getPerformanceMetrics(): any {
     return this.performanceMonitor.aggregateMetrics();
   }
@@ -384,8 +403,6 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   clearPerformanceMetrics(): void {
     this.performanceMonitor.clear();
   }
-
-  // Cache Management Methods
 
   getCacheStats(): any {
     return this.cache.getStats();
@@ -395,8 +412,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     this.cache.invalidate(pattern);
   }
 
-  // Security Methods
-
+  // Security methods
   validateToken(token: string): any {
     return this.securityManager.validateToken(token);
   }
@@ -409,8 +425,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     return this.securityManager.decryptToken(token);
   }
 
-  // Health Monitoring Methods
-
+  // Health monitoring methods
   getHealthStatus(): any {
     return this.healthMonitor.getStatus();
   }
@@ -419,8 +434,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     return this.healthMonitor.checkNow();
   }
 
-  // Circuit Breaker Methods
-
+  // Circuit breaker methods
   getCircuitBreakerStats(): any {
     return this.circuitBreaker.getStats();
   }
@@ -429,8 +443,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     this.circuitBreaker.reset();
   }
 
-  // Multi-Provider Methods
-
+  // Provider switching (for multi-backend scenarios)
   async switchProvider(providerName: string): Promise<void> {
     this.activeProvider = providerName;
   }
@@ -439,8 +452,7 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     return this.activeProvider;
   }
 
-  // Offline Support Methods
-
+  // Offline mode management
   enableOfflineMode(): void {
     this.offlineMode = true;
   }
@@ -454,19 +466,21 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
   }
 
   async syncOfflineData(): Promise<void> {
-    // Placeholder for offline sync implementation
+    // Implementation for offline data sync
   }
 
-  // Developer Tools Methods
-
+  // Debug mode management
   enableDebugMode(): void {
-    this.debugMode = true;
+    this.config.debugMode = true;
   }
 
   disableDebugMode(): void {
-    this.debugMode = false;
+    this.config.debugMode = false;
   }
 
+  /**
+   * Returns comprehensive debug information about the client state
+   */
   getDebugInfo(): DebugInfo {
     const perfMetrics = this.performanceMonitor.aggregateMetrics();
     const healthStatus = this.healthMonitor.getStatus();
@@ -499,8 +513,9 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     };
   }
 
-  // Resource cleanup
-
+  /**
+   * Cleanup method to properly destroy all resources
+   */
   destroy(): void {
     this.healthMonitor.destroy();
     this.performanceMonitor.destroy();
@@ -508,8 +523,9 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     this.cache.clear();
   }
 
-  // Private helper methods
-
+  /**
+   * Returns list of enabled features
+   */
   private getEnabledFeatures() {
     return {
       caching: this.config.caching?.enabled || false,
@@ -521,16 +537,18 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
     };
   }
 
+  /**
+   * Handles performance metrics collection
+   */
   private handlePerformanceMetrics(metrics: any): void {
-    if (this.debugMode) {
-      console.log('Performance metrics:', metrics);
-    }
-
     if (this.config.analytics?.enabled) {
       this.recordAnalyticsEvent('performance_metrics', metrics);
     }
   }
 
+  /**
+   * Records analytics events for tracking
+   */
   private recordAnalyticsEvent(name: string, data: any): void {
     if (!this.config.analytics?.enabled) return;
 
@@ -545,12 +563,15 @@ export class AuthFlowV2ClientImpl implements AuthFlowV2Client {
 
     this.analyticsEvents.push(event);
 
-    // Limit buffer size
+    // Keep only last 100 events to prevent memory leaks
     if (this.analyticsEvents.length > 100) {
       this.analyticsEvents.splice(0, this.analyticsEvents.length - 100);
     }
   }
 
+  /**
+   * Generates unique session ID for analytics
+   */
   private generateSessionId(): string {
     return Math.random().toString(36).substring(2, 15);
   }

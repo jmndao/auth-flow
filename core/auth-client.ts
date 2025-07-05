@@ -5,7 +5,6 @@ import type {
   TokenPair,
   LoginCredentials,
   LoginResponse,
-  RefreshTokenResponse,
   AuthContext,
   HttpMethod,
   AuthMethods,
@@ -17,6 +16,10 @@ import { ErrorHandler } from './error-handler';
 import { CookieManager } from './cookie-manager';
 import { validateConfig, validateLoginCredentials } from '../utils';
 
+/**
+ * Core authentication client that handles token management, automatic token refresh,
+ * and provides HTTP methods with authentication headers
+ */
 export class AuthClient implements HttpMethod, AuthMethods {
   private readonly config: ValidatedAuthFlowConfig;
   private readonly tokenManager: TokenManager;
@@ -25,15 +28,18 @@ export class AuthClient implements HttpMethod, AuthMethods {
   private readonly axiosInstance: AxiosInstance;
   private readonly context: AuthContext;
   private readonly cookieManager?: CookieManager;
+  private refreshPromise: Promise<void> | null = null;
+  private isRefreshing = false;
 
   constructor(config: AuthFlowConfig, context: AuthContext = {}) {
     validateConfig(config);
 
-    if (!config.endpoints) {
-      throw new Error('Endpoints configuration is required');
+    // Validate required fields
+    if (!config.endpoints?.login) {
+      throw new Error('Login endpoint is required');
     }
-    if (!config.tokens) {
-      throw new Error('Tokens configuration is required');
+    if (!config.tokens?.access || !config.tokens?.refresh) {
+      throw new Error('Both access and refresh token field names are required');
     }
 
     this.config = {
@@ -49,14 +55,10 @@ export class AuthClient implements HttpMethod, AuthMethods {
 
     this.context = context;
 
-    // Use cookie manager for cookie tokenSource
+    // Initialize cookie manager if using cookie-based token storage
     if (this.config.tokenSource === 'cookies') {
       this.cookieManager = new CookieManager(this.context, {
         ...(typeof this.config.storage === 'object' ? this.config.storage.options : {}),
-        waitForCookies: 500,
-        fallbackToBody: true,
-        retryCount: 3,
-        debugMode: false,
       });
     }
 
@@ -69,7 +71,6 @@ export class AuthClient implements HttpMethod, AuthMethods {
     );
 
     this.requestQueue = new RequestQueue();
-
     this.errorHandler = new ErrorHandler(
       this.config.onAuthError,
       this.config.retry?.attempts,
@@ -84,118 +85,250 @@ export class AuthClient implements HttpMethod, AuthMethods {
     this.setupInterceptors();
   }
 
+  /**
+   * Sets up request and response interceptors for automatic token handling
+   */
   private setupInterceptors(): void {
-    // Add token to requests
+    // Request interceptor: Add authorization header
     this.axiosInstance.interceptors.request.use(
       async (config) => {
         const accessToken = await this.tokenManager.getAccessToken();
+
         if (accessToken && config.headers) {
           config.headers.Authorization = `Bearer ${accessToken}`;
         }
+
         return config;
       },
       (error) => Promise.reject(error)
     );
 
-    // Handle token refresh
+    // Response interceptor: Handle 401 errors and refresh tokens
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       async (error) => {
-        const authError = this.errorHandler.handleError(error);
+        const originalRequest = error.config;
 
-        if (
-          this.errorHandler.isTokenExpiredError(authError) &&
-          !error.config._retry &&
-          (await this.tokenManager.hasTokens())
-        ) {
-          error.config._retry = true;
+        if (error.response?.status === 401 && !originalRequest._retry && !this.isRefreshing) {
+          originalRequest._retry = true;
 
           try {
-            await this.requestQueue.executeWithRefresh(
-              () => this.refreshTokens(),
-              () => this.axiosInstance.request(error.config)
-            );
+            const refreshToken = await this.tokenManager.getRefreshToken();
 
-            return this.axiosInstance.request(error.config);
-          } catch (refreshError) {
+            if (!refreshToken || this.tokenManager.isTokenExpired(refreshToken)) {
+              await this.clearTokens();
+              throw error;
+            }
+
+            this.isRefreshing = true;
+
+            this.refreshPromise ??= this.performTokenRefresh().finally(() => {
+              this.refreshPromise = null;
+              this.isRefreshing = false;
+            });
+
+            await this.refreshPromise;
+
+            const newAccessToken = await this.tokenManager.getAccessToken();
+            if (newAccessToken && originalRequest.headers) {
+              originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+            }
+
+            return this.axiosInstance.request(originalRequest);
+          } catch {
+            this.isRefreshing = false;
             await this.clearTokens();
-            throw this.errorHandler.handleError(refreshError);
+            throw error;
           }
         }
 
-        throw authError;
+        throw error;
       }
     );
   }
 
+  /**
+   * Performs token refresh using the refresh token
+   */
+  async performTokenRefresh(): Promise<void> {
+    const currentRefreshToken = await this.tokenManager.getRefreshToken();
+
+    if (!currentRefreshToken) {
+      const error = new Error('No refresh token available');
+      // Add Next.js middleware guidance for server environments
+      if (typeof window === 'undefined') {
+        error.message +=
+          '. For Next.js server environments, consider using our middleware for proper token refresh. See: https://github.com/jmndao/auth-flow/blob/main/docs/middleware-setup.md';
+      }
+      throw error;
+    }
+
+    if (this.tokenManager.isTokenExpired(currentRefreshToken)) {
+      const error = new Error('Refresh token is expired');
+      // Add Next.js middleware guidance for server environments
+      if (typeof window === 'undefined') {
+        error.message +=
+          '. For Next.js server environments, consider using our middleware for proper token refresh. See: https://github.com/jmndao/auth-flow/blob/main/docs/middleware-setup.md';
+      }
+      throw error;
+    }
+
+    try {
+      const response = await axios.post(
+        this.getFullUrl(this.config.endpoints.refresh),
+        { refreshToken: currentRefreshToken },
+        {
+          timeout: this.config.timeout,
+          baseURL: this.config.baseURL,
+          withCredentials: true,
+          headers: {
+            Cookie: `${this.config.tokens.refresh}=${currentRefreshToken}`,
+          },
+        }
+      );
+
+      const { accessToken, refreshToken } = this.extractTokensFromRefreshResponse(
+        response,
+        currentRefreshToken
+      );
+
+      const newTokens: TokenPair = {
+        accessToken,
+        refreshToken,
+      };
+
+      await this.tokenManager.setTokens(newTokens);
+
+      if (this.config.onTokenRefresh) {
+        this.config.onTokenRefresh(newTokens);
+      }
+    } catch (error) {
+      // Add Next.js middleware guidance when refresh fails in server environment
+      if (typeof window === 'undefined') {
+        const enhancedError = new Error(
+          `Token refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}. For Next.js server environments, consider using our middleware for proper token refresh. See: https://github.com/jmndao/auth-flow/blob/main/docs/middleware-setup.md`
+        );
+        throw enhancedError;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Extracts tokens from refresh response, with fallback to current refresh token
+   */
+  private extractTokensFromRefreshResponse(
+    response: AxiosResponse,
+    currentRefreshToken: string
+  ): TokenPair {
+    const data = response.data;
+
+    const accessToken =
+      data[this.config.tokens.access] || data.accessToken || data.access_token || data.token;
+
+    if (!accessToken) {
+      throw new Error(
+        `Access token not found in refresh response. Expected field: ${this.config.tokens.access}`
+      );
+    }
+
+    const refreshToken =
+      data[this.config.tokens.refresh] ||
+      data.refreshToken ||
+      data.refresh_token ||
+      currentRefreshToken;
+
+    return { accessToken, refreshToken };
+  }
+
+  /**
+   * Authenticates user with provided credentials
+   */
   async login<TUser = any, TCredentials = LoginCredentials>(
     credentials: TCredentials
   ): Promise<TUser> {
     validateLoginCredentials(credentials);
 
-    try {
-      const response = await axios.post(this.getFullUrl(this.config.endpoints.login), credentials, {
-        timeout: this.config.timeout,
-        baseURL: this.config.baseURL,
-      });
+    const response = await axios.post(this.getFullUrl(this.config.endpoints.login), credentials, {
+      timeout: this.config.timeout,
+      baseURL: this.config.baseURL,
+    });
 
-      const tokens = await this.extractTokens(response);
-      await this.tokenManager.setTokens(tokens);
+    const tokens = await this.extractTokens(response);
+    await this.tokenManager.setTokens(tokens);
 
-      // Store tokens in cookie manager for fallback
-      if (this.cookieManager) {
-        this.cookieManager.setFallbackTokens(tokens);
-      }
-
-      if (this.config.onTokenRefresh) {
-        this.config.onTokenRefresh(tokens);
-      }
-
-      return response.data;
-    } catch (error) {
-      throw this.errorHandler.handleError(error);
+    if (this.config.onTokenRefresh) {
+      this.config.onTokenRefresh(tokens);
     }
+
+    return response.data;
   }
 
+  /**
+   * Logs out user and clears stored tokens
+   */
   async logout(): Promise<void> {
-    try {
-      if (this.config.endpoints.logout) {
-        try {
-          await this.axiosInstance.post(this.config.endpoints.logout);
-        } catch (error) {
-          console.warn('Logout endpoint failed:', error);
-        }
+    if (this.config.endpoints.logout) {
+      try {
+        await this.axiosInstance.post(this.config.endpoints.logout);
+      } catch {
+        // Continue with token cleanup even if logout endpoint fails
       }
+    }
 
-      await this.clearTokens();
+    await this.clearTokens();
 
-      if (this.config.onLogout) {
-        this.config.onLogout();
-      }
-    } catch (error) {
-      throw this.errorHandler.handleError(error);
+    if (this.config.onLogout) {
+      this.config.onLogout();
     }
   }
 
+  /**
+   * Checks if user is authenticated (has tokens stored)
+   */
   isAuthenticated(): boolean {
     return this.tokenManager.hasTokensSync();
   }
 
+  /**
+   * Checks if stored tokens are valid and not expired
+   */
   async hasValidTokens(): Promise<boolean> {
-    return this.tokenManager.hasValidTokens();
+    const tokens = await this.tokenManager.getTokens();
+    if (!tokens) return false;
+
+    // Check if both tokens exist and are non-empty
+    if (!tokens.accessToken || !tokens.refreshToken) {
+      return false;
+    }
+
+    // For JWT tokens, check if refresh token is expired
+    // For non-JWT tokens, just check they exist
+    if (tokens.refreshToken.includes('.')) {
+      // Looks like a JWT, check expiration
+      if (this.tokenManager.isTokenExpired(tokens.refreshToken)) {
+        await this.clearTokens();
+        return false;
+      }
+    }
+
+    return true;
   }
 
   async getTokens(): Promise<TokenPair | null> {
     return this.tokenManager.getTokens();
   }
 
+  async getAccessToken(): Promise<string | null> {
+    return this.tokenManager.getAccessToken();
+  }
+
+  async getRefreshToken(): Promise<string | null> {
+    return this.tokenManager.getRefreshToken();
+  }
+
   async setTokens(tokens: TokenPair): Promise<void> {
     await this.tokenManager.setTokens(tokens);
-
-    // Store in cookie manager for fallback
-    if (this.cookieManager) {
-      this.cookieManager.setFallbackTokens(tokens);
-    }
   }
 
   async clearTokens(): Promise<void> {
@@ -203,7 +336,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
     this.requestQueue.clearQueue();
   }
 
-  // HTTP methods
+  // HTTP Methods
   async get<T = any>(url: string, config?: RequestConfig): Promise<LoginResponse<T>> {
     return this.request<T>('get', url, undefined, config);
   }
@@ -232,6 +365,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     return this.request<T>('options', url, undefined, config);
   }
 
+  /**
+   * Makes HTTP request with error handling and retry logic
+   */
   private async request<T = any>(
     method: string,
     url: string,
@@ -255,45 +391,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     });
   }
 
-  private async refreshTokens(): Promise<void> {
-    const refreshToken = await this.tokenManager.getRefreshToken();
-
-    if (!refreshToken) {
-      throw this.errorHandler.handleError(ErrorHandler.createRefreshTokenExpiredError());
-    }
-
-    try {
-      const response = await axios.post(
-        this.getFullUrl(this.config.endpoints.refresh),
-        { refreshToken },
-        {
-          timeout: this.config.timeout,
-          baseURL: this.config.baseURL,
-        }
-      );
-
-      const refreshData: RefreshTokenResponse = response.data;
-
-      const newTokens: TokenPair = {
-        accessToken: refreshData.accessToken,
-        refreshToken: refreshData.refreshToken || refreshToken,
-      };
-
-      await this.tokenManager.setTokens(newTokens);
-
-      // Update fallback tokens
-      if (this.cookieManager) {
-        this.cookieManager.setFallbackTokens(newTokens);
-      }
-
-      if (this.config.onTokenRefresh) {
-        this.config.onTokenRefresh(newTokens);
-      }
-    } catch (error) {
-      throw this.errorHandler.handleError(error);
-    }
-  }
-
+  /**
+   * Extracts tokens from login response based on configured token source
+   */
   private async extractTokens(response: AxiosResponse): Promise<TokenPair> {
     if (this.config.tokenSource === 'cookies') {
       return this.extractTokensFromCookies(response);
@@ -302,6 +402,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     }
   }
 
+  /**
+   * Extracts tokens from response body
+   */
   private async extractTokensFromBody(response: AxiosResponse): Promise<TokenPair> {
     const data = response.data;
     const accessToken = data[this.config.tokens.access];
@@ -316,61 +419,42 @@ export class AuthClient implements HttpMethod, AuthMethods {
     return { accessToken, refreshToken };
   }
 
+  /**
+   * Extracts tokens from cookies, with fallback to body
+   */
   private async extractTokensFromCookies(response: AxiosResponse): Promise<TokenPair> {
-    // First try to extract from response body as fallback
     const bodyTokens = this.tryExtractFromBody(response);
     if (bodyTokens) {
-      // Set fallback tokens in cookie manager
-      if (this.cookieManager) {
-        this.cookieManager.setFallbackTokens(bodyTokens);
-      }
       return bodyTokens;
     }
 
-    // Get options safely
-    const cookieOptions = this.cookieManager?.getOptions();
-    const waitTime = cookieOptions?.waitForCookies || 100;
-    const maxRetries = cookieOptions?.retryCount || 3;
+    // Wait for cookies to be set
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
-    // Allow time for cookies to be set by browser
-    await new Promise((resolve) => setTimeout(resolve, waitTime));
-
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        const tokens = await this.tokenManager.getTokens();
-        if (tokens && tokens.accessToken && tokens.refreshToken) {
-          return tokens;
-        }
-      } catch (error) {
-        lastError = error as Error;
+    // Retry getting tokens from cookies
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const tokens = await this.tokenManager.getTokens();
+      if (tokens?.accessToken && tokens?.refreshToken) {
+        return tokens;
       }
 
-      // Wait longer on each retry
-      if (attempt < maxRetries - 1) {
-        await new Promise((resolve) => setTimeout(resolve, waitTime * (attempt + 1)));
-      }
-    }
-
-    // Final attempt: check if cookie manager has fallback tokens
-    if (this.cookieManager) {
-      const fallbackTokens = this.cookieManager.getFallbackTokens();
-      if (fallbackTokens) {
-        return fallbackTokens;
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
     }
 
     throw new Error(
-      `Tokens not found in cookies after ${maxRetries} attempts. Expected: ${this.config.tokens.access}, ${this.config.tokens.refresh}. Last error: ${lastError?.message || 'Unknown'}`
+      `Tokens not found in cookies after login. Expected: ${this.config.tokens.access}, ${this.config.tokens.refresh}`
     );
   }
 
+  /**
+   * Attempts to extract tokens from response body (fallback for cookie mode)
+   */
   private tryExtractFromBody(response: AxiosResponse): TokenPair | null {
     try {
       const data = response.data;
 
-      // Try different response structures
       const accessToken =
         data[this.config.tokens.access] ||
         data.data?.[this.config.tokens.access] ||
@@ -392,6 +476,9 @@ export class AuthClient implements HttpMethod, AuthMethods {
     return null;
   }
 
+  /**
+   * Constructs full URL from endpoint
+   */
   private getFullUrl(endpoint: string): string {
     if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
       return endpoint;

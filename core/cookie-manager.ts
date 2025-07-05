@@ -9,9 +9,12 @@ interface CookieManagerOptions extends CookieStorageOptions {
   waitForCookies?: number;
   fallbackToBody?: boolean;
   retryCount?: number;
-  debugMode?: boolean;
 }
 
+/**
+ * Manages cookie storage for tokens across different server and client environments
+ * Supports Next.js, Express, and browser environments with automatic fallbacks
+ */
 export class CookieManager implements StorageAdapter {
   private readonly context: StorageAdapterContext;
   public readonly options: CookieManagerOptions;
@@ -26,46 +29,23 @@ export class CookieManager implements StorageAdapter {
       path: '/',
       maxAge: 86400,
       waitForCookies: 500,
-      fallbackToBody: true,
+      fallbackToBody: false, // Disable fallback by default
       retryCount: 3,
-      debugMode: false,
       ...options,
     };
     this.isServer = typeof window === 'undefined';
-
-    if (this.options.debugMode) {
-      console.log('CookieManager initialized', { isServer: this.isServer, context: !!context });
-    }
   }
 
+  /**
+   * Retrieves a cookie value with retry logic for server environments
+   */
   async get(key: string): Promise<string | null> {
-    if (this.options.debugMode) {
-      console.log(`Cookie get: ${key} (server: ${this.isServer})`);
-    }
-
-    // Try multiple times for cookie propagation
+    // Always try to read from actual storage first
     for (let attempt = 0; attempt < (this.options.retryCount || 3); attempt++) {
       const value = this.isServer ? await this.getServerCookie(key) : this.getClientCookie(key);
 
       if (value) {
-        if (this.options.debugMode) {
-          console.log(`Cookie found on attempt ${attempt + 1}: ${key}`);
-        }
         return value;
-      }
-
-      // Use fallback tokens if available
-      if (attempt === 0 && this.options.fallbackToBody && this.fallbackTokens) {
-        const fallbackValue = key.includes('access')
-          ? this.fallbackTokens.accessToken
-          : this.fallbackTokens.refreshToken;
-
-        if (fallbackValue) {
-          if (this.options.debugMode) {
-            console.log(`Using fallback token for ${key}`);
-          }
-          return fallbackValue;
-        }
       }
 
       // Wait before retry
@@ -74,55 +54,89 @@ export class CookieManager implements StorageAdapter {
       }
     }
 
-    if (this.options.debugMode) {
-      console.log(`Cookie not found: ${key}`);
+    // Clear fallback tokens if real cookies are missing
+    if (this.fallbackTokens) {
+      this.fallbackTokens = null;
     }
+
     return null;
   }
 
-  set(key: string, value: string): void {
-    if (this.options.debugMode) {
-      console.log(`Setting cookie: ${key} (server: ${this.isServer})`);
-    }
-
+  /**
+   * Sets a cookie value
+   */
+  set(key: string, value: string): void | Promise<void> {
     if (this.isServer) {
-      this.setServerCookie(key, value);
+      return this.setServerCookie(key, value);
     } else {
       this.setClientCookie(key, value);
     }
   }
 
-  remove(key: string): void {
+  /**
+   * Removes a cookie
+   */
+  remove(key: string): void | Promise<void> {
+    // Clear fallback tokens when removing cookies
+    if (this.fallbackTokens) {
+      if (
+        (key.includes('access') && this.fallbackTokens.accessToken) ||
+        (key.includes('refresh') && this.fallbackTokens.refreshToken)
+      ) {
+        this.fallbackTokens = null;
+      }
+    }
+
     if (this.isServer) {
-      this.removeServerCookie(key);
+      return this.removeServerCookie(key);
     } else {
       this.removeClientCookie(key);
     }
   }
 
+  /**
+   * Clears all managed data
+   */
   clear(): void {
-    console.warn('Cookie clear() - use remove() for specific tokens');
+    this.fallbackTokens = null;
   }
 
+  /**
+   * Sets fallback tokens for when cookies are not immediately available
+   */
   setFallbackTokens(tokens: TokenPair): void {
     this.fallbackTokens = tokens;
-    if (this.options.debugMode) {
-      console.log('Fallback tokens set:', tokens);
-    }
   }
 
+  /**
+   * Gets fallback tokens
+   */
   getFallbackTokens(): TokenPair | null {
     return this.fallbackTokens;
   }
 
+  /**
+   * Clears fallback tokens
+   */
+  clearFallbackTokens(): void {
+    this.fallbackTokens = null;
+  }
+
+  /**
+   * Gets current options
+   */
   getOptions(): CookieManagerOptions {
     return this.options;
   }
 
+  /**
+   * Utility method to sleep for specified milliseconds
+   */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  // Client-side cookie methods
   private getClientCookie(key: string): string | null {
     if (typeof document === 'undefined') return null;
 
@@ -175,31 +189,28 @@ export class CookieManager implements StorageAdapter {
     document.cookie = cookieString;
   }
 
+  // Server-side cookie methods
+  /**
+   * Attempts to retrieve server-side cookie using multiple strategies
+   */
   private async getServerCookie(key: string): Promise<string | null> {
     const attempts = [
-      // Next.js App Router cookies() API with better error handling
+      // Next.js App Router cookies() API with proper async handling
       async () => {
         if (this.context.cookies && typeof this.context.cookies === 'function') {
           try {
-            const cookieStore = this.context.cookies();
+            const cookieStore = await this.context.cookies();
 
-            // Handle both sync and async cookies() calls
-            const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
-
-            // Different ways to access cookies from Next.js
-            if (resolvedStore && typeof resolvedStore.get === 'function') {
-              const cookie = resolvedStore.get(key);
+            if (cookieStore && typeof cookieStore.get === 'function') {
+              const cookie = cookieStore.get(key);
               return cookie?.value || null;
             }
 
-            // Fallback for direct cookie object
-            if (resolvedStore && typeof resolvedStore === 'object') {
-              return resolvedStore[key] || null;
+            if (cookieStore && typeof cookieStore === 'object') {
+              return cookieStore[key] || null;
             }
-          } catch (error) {
-            if (this.options.debugMode) {
-              console.warn('Next.js cookies() access failed:', error);
-            }
+          } catch {
+            // Context access failed
           }
         }
         return null;
@@ -249,35 +260,31 @@ export class CookieManager implements StorageAdapter {
               }
             }
           }
-        } catch (error) {
-          if (this.options.debugMode) {
-            console.warn('Headers API access failed:', error);
-          }
+        } catch {
+          // Headers API access failed
         }
         return null;
       },
     ];
 
-    for (const [index, attempt] of attempts.entries()) {
+    for (const attempt of attempts) {
       try {
         const value = await attempt();
         if (value) {
-          if (this.options.debugMode) {
-            console.log(`Server cookie found via method ${index + 1}: ${key}`);
-          }
           return value;
         }
-      } catch (error) {
-        if (this.options.debugMode) {
-          console.warn(`Cookie access attempt ${index + 1} failed:`, error);
-        }
+      } catch {
+        // Continue to next attempt
       }
     }
 
     return null;
   }
 
-  private setServerCookie(key: string, value: string): void {
+  /**
+   * Sets server-side cookie using multiple strategies
+   */
+  private async setServerCookie(key: string, value: string): Promise<void> {
     const cookieOptions: any = {
       secure: this.options.secure,
       sameSite: this.options.sameSite,
@@ -286,7 +293,6 @@ export class CookieManager implements StorageAdapter {
       httpOnly: this.options.httpOnly,
     };
 
-    // Convert maxAge from seconds to milliseconds for some APIs
     if (this.options.maxAge) {
       cookieOptions.maxAge = this.options.maxAge;
     }
@@ -300,67 +306,44 @@ export class CookieManager implements StorageAdapter {
 
     let success = false;
 
-    // Try Next.js cookies() API first with better error handling
+    // Try Next.js cookies() API first with proper async handling
     if (this.context.cookies && typeof this.context.cookies === 'function') {
       try {
-        const cookieStore = this.context.cookies();
-        const resolvedStore =
-          cookieStore instanceof Promise ? cookieStore : Promise.resolve(cookieStore);
+        const cookieStore = await this.context.cookies();
 
-        resolvedStore
-          .then((store) => {
-            if (store && store.set && typeof store.set === 'function') {
-              store.set(key, value, cookieOptions);
-              success = true;
-              if (this.options.debugMode) {
-                console.log(`Cookie set via Next.js API: ${key}`);
-              }
-            }
-          })
-          .catch((error) => {
-            if (this.options.debugMode) {
-              console.warn('Next.js cookie setting failed:', error);
-            }
-          });
-      } catch (error) {
-        if (this.options.debugMode) {
-          console.warn('Next.js cookie setting failed:', error);
+        if (cookieStore && cookieStore.set && typeof cookieStore.set === 'function') {
+          cookieStore.set(key, value, cookieOptions);
+          success = true;
         }
+      } catch {
+        // Continue to next method
       }
     }
 
     // Try custom cookie setter
     if (!success && this.context.cookieSetter && typeof this.context.cookieSetter === 'function') {
       try {
-        this.context.cookieSetter(key, value, cookieOptions);
+        const result = this.context.cookieSetter(key, value, cookieOptions) as any;
+        if (result instanceof Promise) {
+          await result;
+        }
         success = true;
-        if (this.options.debugMode) {
-          console.log(`Cookie set via custom setter: ${key}`);
-        }
-      } catch (error) {
-        if (this.options.debugMode) {
-          console.warn('Custom cookie setter failed:', error);
-        }
+      } catch {
+        // Continue to next method
       }
     }
 
     // Try Express-style res.cookie
     if (!success && this.context.res?.cookie && typeof this.context.res.cookie === 'function') {
       try {
-        // Express expects maxAge in milliseconds
         const expressOptions = { ...cookieOptions };
         if (expressOptions.maxAge) {
           expressOptions.maxAge = expressOptions.maxAge * 1000;
         }
         this.context.res.cookie(key, value, expressOptions);
         success = true;
-        if (this.options.debugMode) {
-          console.log(`Cookie set via Express: ${key}`);
-        }
-      } catch (error) {
-        if (this.options.debugMode) {
-          console.warn('Express cookie setting failed:', error);
-        }
+      } catch {
+        // Continue to next method
       }
     }
 
@@ -377,50 +360,35 @@ export class CookieManager implements StorageAdapter {
         cookies.push(cookieString);
         this.context.res.setHeader('Set-Cookie', cookies);
         success = true;
-        if (this.options.debugMode) {
-          console.log(`Cookie set via setHeader: ${key}`);
-        }
-      } catch (error) {
-        if (this.options.debugMode) {
-          console.warn('SetHeader cookie setting failed:', error);
-        }
+      } catch {
+        // All methods failed
       }
-    }
-
-    if (!success && this.options.debugMode) {
-      console.warn(`Failed to set server cookie: ${key} - no valid context found`);
     }
   }
 
-  private removeServerCookie(key: string): void {
+  /**
+   * Removes server-side cookie using multiple strategies
+   */
+  private async removeServerCookie(key: string): Promise<void> {
     const expiredOptions = {
       ...this.options,
       expires: new Date(0),
       maxAge: 0,
     };
 
-    // Try all the same methods as setServerCookie but with expired options
     let success = false;
 
     if (this.context.cookies && typeof this.context.cookies === 'function') {
       try {
-        const cookieStore = this.context.cookies();
-        const resolvedStore =
-          cookieStore instanceof Promise ? cookieStore : Promise.resolve(cookieStore);
+        const cookieStore = await this.context.cookies();
 
-        resolvedStore
-          .then((store) => {
-            if (store && store.delete && typeof store.delete === 'function') {
-              store.delete(key);
-              success = true;
-            } else if (store && store.set && typeof store.set === 'function') {
-              store.set(key, '', expiredOptions);
-              success = true;
-            }
-          })
-          .catch(() => {
-            // Continue to next method
-          });
+        if (cookieStore && cookieStore.delete && typeof cookieStore.delete === 'function') {
+          cookieStore.delete(key);
+          success = true;
+        } else if (cookieStore && cookieStore.set && typeof cookieStore.set === 'function') {
+          cookieStore.set(key, '', expiredOptions);
+          success = true;
+        }
       } catch {
         // Continue to next method
       }
@@ -428,7 +396,10 @@ export class CookieManager implements StorageAdapter {
 
     if (!success && this.context.cookieSetter && typeof this.context.cookieSetter === 'function') {
       try {
-        this.context.cookieSetter(key, '', expiredOptions);
+        const result = this.context.cookieSetter(key, '', expiredOptions) as any;
+        if (result instanceof Promise) {
+          await result;
+        }
         success = true;
       } catch {
         // Continue to next method
@@ -461,11 +432,14 @@ export class CookieManager implements StorageAdapter {
         this.context.res.setHeader('Set-Cookie', cookies);
         success = true;
       } catch {
-        // Final attempt failed
+        // All methods failed
       }
     }
   }
 
+  /**
+   * Builds cookie string for raw header setting
+   */
   private buildCookieString(key: string, value: string, options: any): string {
     let cookieString = `${key}=${encodeURIComponent(value)}`;
 

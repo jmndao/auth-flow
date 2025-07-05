@@ -4,17 +4,27 @@
 
 ### createAuthFlow(config, context?)
 
-Creates a v1.x compatible AuthFlow client.
+Creates a standard AuthFlow client.
 
 **Parameters:**
 
-- `config` (string | AuthFlowConfig) - Base URL or configuration object
+- `config` (AuthFlowConfig) - Configuration object
 - `context` (AuthContext, optional) - Server-side context
 
 **Returns:** AuthClient
 
 ```typescript
-const auth = createAuthFlow('https://api.example.com');
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  endpoints: {
+    login: '/auth/login',
+    refresh: '/auth/refresh',
+  },
+  tokens: {
+    access: 'accessToken',
+    refresh: 'refreshToken',
+  },
+});
 ```
 
 ### createAuthFlowV2(config, context?)
@@ -40,7 +50,7 @@ const auth = createAuthFlowV2({
 
 #### createProductionAuthFlow(baseURL, config?)
 
-Creates a production-ready AuthFlow instance with monitoring and security features.
+Creates a production-ready AuthFlow instance.
 
 ```typescript
 const auth = createProductionAuthFlow('https://api.example.com');
@@ -48,7 +58,7 @@ const auth = createProductionAuthFlow('https://api.example.com');
 
 #### createPerformantAuthFlow(baseURL)
 
-Creates a high-performance AuthFlow instance with aggressive caching.
+Creates a high-performance AuthFlow instance with caching.
 
 ```typescript
 const auth = createPerformantAuthFlow('https://api.example.com');
@@ -56,7 +66,7 @@ const auth = createPerformantAuthFlow('https://api.example.com');
 
 #### createSecureAuthFlow(baseURL, encryptionKey, signingKey)
 
-Creates a security-focused AuthFlow instance with encryption and signing.
+Creates a security-focused AuthFlow instance.
 
 ```typescript
 const auth = createSecureAuthFlow('https://api.example.com', 'encryption-key', 'signing-key');
@@ -72,13 +82,13 @@ const auth = createResilientAuthFlow('https://api.example.com');
 
 #### createDevAuthFlow(baseURL)
 
-Creates a development-friendly AuthFlow instance with debugging enabled.
+Creates a development-friendly AuthFlow instance.
 
 ```typescript
 const auth = createDevAuthFlow('https://api.example.com');
 ```
 
-## AuthFlowV2Client Interface
+## AuthClient Interface
 
 ### Authentication Methods
 
@@ -181,16 +191,12 @@ Makes a GET request.
 **Parameters:**
 
 - `url` (string) - Request URL
-- `config` (V2RequestConfig, optional) - Request configuration
+- `config` (RequestConfig, optional) - Request configuration
 
-**Returns:** Promise<T>
+**Returns:** Promise<LoginResponse<T>>
 
 ```typescript
 const users = await auth.get('/api/users');
-const user = await auth.get('/api/users/1', {
-  headers: { 'Custom-Header': 'value' },
-  cache: { ttl: 60000 },
-});
 ```
 
 #### post<T>(url, data?, config?)
@@ -201,9 +207,9 @@ Makes a POST request.
 
 - `url` (string) - Request URL
 - `data` (any, optional) - Request body
-- `config` (V2RequestConfig, optional) - Request configuration
+- `config` (RequestConfig, optional) - Request configuration
 
-**Returns:** Promise<T>
+**Returns:** Promise<LoginResponse<T>>
 
 ```typescript
 const newUser = await auth.post('/api/users', {
@@ -216,54 +222,35 @@ const newUser = await auth.post('/api/users', {
 
 Makes a PUT request.
 
-**Parameters:**
-
-- `url` (string) - Request URL
-- `data` (any, optional) - Request body
-- `config` (V2RequestConfig, optional) - Request configuration
-
-**Returns:** Promise<T>
-
-```typescript
-const updatedUser = await auth.put('/api/users/1', {
-  name: 'Jane Doe',
-});
-```
+**Returns:** Promise<LoginResponse<T>>
 
 #### patch<T>(url, data?, config?)
 
 Makes a PATCH request.
 
-**Parameters:**
-
-- `url` (string) - Request URL
-- `data` (any, optional) - Request body
-- `config` (V2RequestConfig, optional) - Request configuration
-
-**Returns:** Promise<T>
-
-```typescript
-const patchedUser = await auth.patch('/api/users/1', {
-  status: 'active',
-});
-```
+**Returns:** Promise<LoginResponse<T>>
 
 #### delete<T>(url, config?)
 
 Makes a DELETE request.
 
-**Parameters:**
+**Returns:** Promise<LoginResponse<T>>
 
-- `url` (string) - Request URL
-- `config` (V2RequestConfig, optional) - Request configuration
+#### head<T>(url, config?)
 
-**Returns:** Promise<T>
+Makes a HEAD request.
 
-```typescript
-await auth.delete('/api/users/1');
-```
+**Returns:** Promise<LoginResponse<T>>
 
-### Performance Monitoring
+#### options<T>(url, config?)
+
+Makes an OPTIONS request.
+
+**Returns:** Promise<LoginResponse<T>>
+
+## AuthFlowV2Client Interface
+
+### Additional V2 Features
 
 #### getPerformanceMetrics()
 
@@ -277,9 +264,6 @@ console.log({
   totalRequests: metrics.totalRequests,
   averageResponseTime: metrics.averageResponseTime,
   successRate: metrics.successRate,
-  p95ResponseTime: metrics.p95ResponseTime,
-  p99ResponseTime: metrics.p99ResponseTime,
-  cacheHitRate: metrics.cacheHitRate,
 });
 ```
 
@@ -287,13 +271,9 @@ console.log({
 
 Clears all performance metrics.
 
-**Returns:** void
-
 ```typescript
 auth.clearPerformanceMetrics();
 ```
-
-### Cache Management
 
 #### getCacheStats()
 
@@ -305,10 +285,7 @@ Returns cache statistics.
 const stats = auth.getCacheStats();
 console.log({
   size: stats.size,
-  maxSize: stats.maxSize,
   hitRate: stats.hitRate,
-  expired: stats.expired,
-  valid: stats.valid,
 });
 ```
 
@@ -320,8 +297,6 @@ Clears cache entries, optionally by pattern.
 
 - `pattern` (string, optional) - URL pattern to match
 
-**Returns:** void
-
 ```typescript
 // Clear all cache
 auth.clearCache();
@@ -330,71 +305,12 @@ auth.clearCache();
 auth.clearCache('/api/users/*');
 ```
 
-### Security Features
-
-#### validateToken(token)
-
-Validates a JWT token.
-
-**Parameters:**
-
-- `token` (string) - Token to validate
-
-**Returns:** TokenValidation
-
-```typescript
-const validation = auth.validateToken(token);
-console.log({
-  isValid: validation.isValid,
-  isExpired: validation.isExpired,
-  expiresAt: validation.expiresAt,
-  payload: validation.payload,
-});
-```
-
-#### encryptToken(token)
-
-Encrypts a token using the configured encryption key.
-
-**Parameters:**
-
-- `token` (string) - Token to encrypt
-
-**Returns:** string
-
-```typescript
-const encrypted = auth.encryptToken('sensitive-token');
-```
-
-#### decryptToken(encryptedToken)
-
-Decrypts a token using the configured encryption key.
-
-**Parameters:**
-
-- `encryptedToken` (string) - Encrypted token to decrypt
-
-**Returns:** string
-
-```typescript
-const decrypted = auth.decryptToken(encryptedToken);
-```
-
-### Health Monitoring
-
 #### getHealthStatus()
 
 Returns current health status.
 
-**Returns:** HealthStatus
-
 ```typescript
 const health = auth.getHealthStatus();
-console.log({
-  isHealthy: health.isHealthy,
-  lastCheckTime: health.lastCheckTime,
-  responseTime: health.responseTime,
-});
 ```
 
 #### checkHealth()
@@ -407,121 +323,28 @@ Performs an immediate health check.
 const health = await auth.checkHealth();
 ```
 
-### Circuit Breaker
-
 #### getCircuitBreakerStats()
 
 Returns circuit breaker statistics.
 
-**Returns:** CircuitBreakerStats
-
 ```typescript
 const stats = auth.getCircuitBreakerStats();
-console.log({
-  state: stats.state,
-  failures: stats.failures,
-  successes: stats.successes,
-  nextRetryTime: stats.nextRetryTime,
-});
 ```
 
 #### resetCircuitBreaker()
 
-Manually resets the circuit breaker to closed state.
-
-**Returns:** void
+Manually resets the circuit breaker.
 
 ```typescript
 auth.resetCircuitBreaker();
 ```
 
-### Multi-Provider Support
+#### enableDebugMode() / disableDebugMode()
 
-#### switchProvider(providerName)
-
-Switches to a different authentication provider.
-
-**Parameters:**
-
-- `providerName` (string) - Name of the provider to switch to
-
-**Returns:** Promise<void>
-
-```typescript
-await auth.switchProvider('secondary');
-```
-
-#### getActiveProvider()
-
-Gets the name of the currently active provider.
-
-**Returns:** string
-
-```typescript
-const provider = auth.getActiveProvider();
-```
-
-### Offline Support
-
-#### enableOfflineMode()
-
-Enables offline mode.
-
-**Returns:** void
-
-```typescript
-auth.enableOfflineMode();
-```
-
-#### disableOfflineMode()
-
-Disables offline mode.
-
-**Returns:** void
-
-```typescript
-auth.disableOfflineMode();
-```
-
-#### isOffline()
-
-Checks if offline mode is enabled.
-
-**Returns:** boolean
-
-```typescript
-const offline = auth.isOffline();
-```
-
-#### syncOfflineData()
-
-Synchronizes offline data when connection is restored.
-
-**Returns:** Promise<void>
-
-```typescript
-await auth.syncOfflineData();
-```
-
-### Developer Tools
-
-#### enableDebugMode()
-
-Enables debug mode with detailed logging.
-
-**Returns:** void
+Controls debug mode.
 
 ```typescript
 auth.enableDebugMode();
-```
-
-#### disableDebugMode()
-
-Disables debug mode.
-
-**Returns:** void
-
-```typescript
 auth.disableDebugMode();
 ```
 
@@ -533,155 +356,125 @@ Returns comprehensive debug information.
 
 ```typescript
 const debug = auth.getDebugInfo();
-console.log({
-  config: debug.config,
-  authState: debug.authState,
-  performance: debug.performance,
-  health: debug.health,
-  circuitBreaker: debug.circuitBreaker,
-  features: debug.features,
-});
 ```
-
-### Resource Management
 
 #### destroy()
 
-Cleans up resources and stops all monitoring.
-
-**Returns:** void
+Cleans up resources and stops monitoring.
 
 ```typescript
 auth.destroy();
 ```
 
-## Configuration Interfaces
+## Middleware Functions
 
-### AuthFlowV2Config
+### createAuthMiddleware(authFlow, config?)
+
+Creates authentication middleware for Next.js.
+
+**Parameters:**
+
+- `authFlow` (AuthFlowInstance) - AuthFlow client instance
+- `config` (MiddlewareConfig, optional) - Middleware configuration
+
+**Returns:** Next.js middleware function
 
 ```typescript
-interface AuthFlowV2Config {
-  baseURL: string;
+import { createAuthMiddleware } from '@jmndao/auth-flow/middleware';
 
-  // Authentication
-  endpoints?: {
+export default createAuthMiddleware(authFlow, {
+  redirectUrl: '/login',
+  publicPaths: ['/login', '/register'],
+  protectedPaths: ['/dashboard/*'],
+});
+```
+
+### createServerAuthChecker(authFlow)
+
+Creates server-side authentication checker.
+
+**Parameters:**
+
+- `authFlow` (AuthFlowInstance) - AuthFlow client instance
+
+**Returns:** Promise<Function>
+
+```typescript
+const checkAuth = await createServerAuthChecker(authFlow);
+const result = await checkAuth();
+
+if (result.isAuthenticated) {
+  console.log('User:', result.user);
+}
+```
+
+### createServerActionWrapper(authFlow)
+
+Creates wrapper for server actions with authentication.
+
+**Parameters:**
+
+- `authFlow` (AuthFlowInstance) - AuthFlow client instance
+
+**Returns:** Function wrapper
+
+```typescript
+const withAuth = createServerActionWrapper(authFlow);
+
+export const updateProfile = withAuth(async (formData) => {
+  // Protected server action
+});
+```
+
+## Configuration Interfaces
+
+### AuthFlowConfig
+
+```typescript
+interface AuthFlowConfig {
+  baseURL?: string;
+  endpoints: {
     login: string;
     refresh: string;
     logout?: string;
   };
-  tokens?: {
+  tokens: {
     access: string;
     refresh: string;
   };
   tokenSource?: 'body' | 'cookies';
   storage?: StorageType | StorageConfig;
   timeout?: number;
+  retry?: RetryConfig;
+  onTokenRefresh?: (tokens: TokenPair) => void;
+  onAuthError?: (error: AuthError) => void;
+  onLogout?: () => void;
+}
+```
 
-  // Performance
+### AuthFlowV2Config
+
+```typescript
+interface AuthFlowV2Config extends AuthFlowConfig {
   caching?: Partial<CacheConfig>;
   monitoring?: Partial<PerformanceConfig>;
-
-  // Security
   security?: Partial<SecurityConfig>;
-
-  // Resilience
-  retry?: Partial<V2RetryConfig>;
   circuitBreaker?: Partial<CircuitBreakerConfig>;
   health?: Partial<HealthConfig>;
-
-  // Advanced
-  providers?: MultiProviderConfig;
-  sso?: SSOConfig;
-  offline?: OfflineConfig;
   debugMode?: boolean;
   analytics?: AnalyticsConfig;
 }
 ```
 
-### V2RequestConfig
+### MiddlewareConfig
 
 ```typescript
-interface V2RequestConfig {
-  headers?: Record<string, string>;
-  timeout?: number;
-  baseURL?: string;
-  cache?: {
-    enabled?: boolean;
-    ttl?: number;
-    key?: string;
-  };
-  retry?: Partial<V2RetryConfig>;
-  bypassCircuitBreaker?: boolean;
-  offlineCache?: boolean;
-  analytics?: Record<string, any>;
-}
-```
-
-### CacheConfig
-
-```typescript
-interface CacheConfig {
-  enabled: boolean;
-  defaultTTL: number;
-  maxSize: number;
-  strategies: Map<string, CacheStrategy>;
-}
-```
-
-### PerformanceConfig
-
-```typescript
-interface PerformanceConfig {
-  enabled: boolean;
-  sampleRate: number;
-  maxSamples: number;
-  aggregationInterval: number;
-  slowThreshold: number;
-  onMetrics?: (metrics: AggregatedMetrics) => void;
-}
-```
-
-### SecurityConfig
-
-```typescript
-interface SecurityConfig {
-  encryptTokens: boolean;
-  encryptionKey?: string;
-  csrf: {
-    enabled: boolean;
-    tokenEndpoint?: string;
-    headerName?: string;
-    cookieName?: string;
-  };
-  requestSigning: {
-    enabled: boolean;
-    algorithm?: 'HMAC-SHA256';
-    secretKey?: string;
-    includeHeaders?: string[];
-  };
-}
-```
-
-### CircuitBreakerConfig
-
-```typescript
-interface CircuitBreakerConfig {
-  threshold: number;
-  resetTimeout: number;
-  monitoringPeriod: number;
-  minimumRequests: number;
-}
-```
-
-### HealthConfig
-
-```typescript
-interface HealthConfig {
-  enabled: boolean;
-  endpoint: string;
-  interval: number;
-  timeout?: number;
-  onStatusChange?: (isHealthy: boolean) => void;
+interface MiddlewareConfig {
+  redirectUrl?: string;
+  publicPaths?: string[];
+  protectedPaths?: string[];
+  skipValidation?: (path: string) => boolean;
+  includeCallbackUrl?: boolean;
 }
 ```
 
@@ -705,30 +498,37 @@ Common error codes:
 - `REFRESH_TOKEN_EXPIRED` - Refresh token has expired
 - `INVALID_CREDENTIALS` - Login credentials are invalid
 - `UNAUTHORIZED` - Request lacks valid authentication
-- `FORBIDDEN` - Request is forbidden
-- `SERVER_ERROR` - Server-side error occurred
 
-## Testing Utilities
+## Type Definitions
 
-### mockAuthClient(overrides?)
-
-Creates a mock AuthFlow client for testing.
-
-**Parameters:**
-
-- `overrides` (object, optional) - Properties to override
-
-**Returns:** Mock AuthFlowV2Client
+### TokenPair
 
 ```typescript
-import { mockAuthClient } from '@jmndao/auth-flow/testing';
+interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+}
+```
 
-const mockAuth = mockAuthClient({
-  isAuthenticated: () => true,
-  getTokens: () =>
-    Promise.resolve({
-      accessToken: 'mock-token',
-      refreshToken: 'mock-refresh',
-    }),
-});
+### AuthContext
+
+```typescript
+interface AuthContext {
+  req?: any;
+  res?: any;
+  cookies?: () => Promise<any> | any;
+  headers?: () => Promise<any> | any;
+  cookieSetter?: (name: string, value: string, options?: any) => Promise<void> | void;
+}
+```
+
+### LoginResponse
+
+```typescript
+interface LoginResponse<T = any> {
+  data: T;
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+}
 ```

@@ -1,5 +1,9 @@
 import type { StorageAdapter, CookieStorageOptions, StorageAdapterContext } from '../types';
 
+/**
+ * Cookie-based storage adapter for tokens
+ * Handles both client-side and server-side cookie operations
+ */
 export class CookieStorageAdapter implements StorageAdapter {
   private readonly context: StorageAdapterContext;
   private readonly options: CookieStorageOptions;
@@ -17,6 +21,9 @@ export class CookieStorageAdapter implements StorageAdapter {
     this.isServer = typeof window === 'undefined';
   }
 
+  /**
+   * Retrieves cookie value
+   */
   get(key: string): string | null {
     if (this.isServer) {
       return this.getServerSideCookie(key);
@@ -25,6 +32,9 @@ export class CookieStorageAdapter implements StorageAdapter {
     }
   }
 
+  /**
+   * Sets cookie value
+   */
   set(key: string, value: string): void {
     if (this.isServer) {
       this.setServerSideCookie(key, value);
@@ -33,6 +43,9 @@ export class CookieStorageAdapter implements StorageAdapter {
     }
   }
 
+  /**
+   * Removes cookie
+   */
   remove(key: string): void {
     if (this.isServer) {
       this.removeServerSideCookie(key);
@@ -41,9 +54,11 @@ export class CookieStorageAdapter implements StorageAdapter {
     }
   }
 
+  /**
+   * Clears all managed cookies (limited implementation)
+   */
   clear(): void {
-    // Can't clear all cookies, only warn
-    console.warn('Cookie clear() not implemented - clear tokens individually');
+    // Cannot clear all cookies generically
   }
 
   // Client-side cookie methods
@@ -112,7 +127,7 @@ export class CookieStorageAdapter implements StorageAdapter {
         const cookieStore = this.context.cookies();
         return cookieStore.get(key)?.value || null;
       } catch {
-        // Fallback
+        // Function call failed
       }
     }
 
@@ -169,6 +184,9 @@ export class CookieStorageAdapter implements StorageAdapter {
     }
   }
 
+  /**
+   * Builds cookie string for raw header setting
+   */
   private buildCookieString(key: string, value: string, options: any): string {
     let cookieString = `${key}=${encodeURIComponent(value)}`;
 

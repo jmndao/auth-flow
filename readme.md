@@ -8,13 +8,27 @@ Universal authentication client for JavaScript applications with production-read
 
 ## Features
 
-- **Universal Compatibility** - Works in browsers, Node.js, React Native, and SSR environments
-- **Framework Agnostic** - Integrates with Next.js, React, Vue, Express, and more
+- **Framework Agnostic** - Works with Next.js, React, Vue, Express, and more
 - **Multiple Storage Options** - localStorage, cookies, memory, or custom adapters
-- **Token Management** - Automatic refresh, secure storage, and validation
+- **Automatic Token Refresh** - Handles expired tokens seamlessly
 - **Production Ready** - Caching, monitoring, retry logic, and circuit breakers
 - **TypeScript First** - Complete type safety and intellisense
-- **Zero Dependencies** - Lightweight core with optional enhancements
+- **Zero Dependencies** - Lightweight core with optional features# AuthFlow
+
+Universal authentication client for JavaScript applications with production-ready features.
+
+[![npm version](https://img.shields.io/npm/v/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
+[![downloads](https://img.shields.io/npm/dm/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
+[![license](https://img.shields.io/npm/l/@jmndao/auth-flow)](https://github.com/jmndao/auth-flow/blob/main/LICENSE)
+
+## Features
+
+- **Framework Agnostic** - Works with Next.js, React, Vue, Express, and more
+- **Multiple Storage Options** - localStorage, cookies, memory, or custom adapters
+- **Automatic Token Refresh** - Handles expired tokens seamlessly
+- **Production Ready** - Caching, monitoring, retry logic, and circuit breakers
+- **TypeScript First** - Complete type safety and intellisense
+- **Zero Dependencies** - Lightweight core with optional features
 
 ## Installation
 
@@ -24,8 +38,6 @@ npm install @jmndao/auth-flow
 
 ## Quick Start
 
-### Basic Usage
-
 ```typescript
 import { createAuthFlow } from '@jmndao/auth-flow';
 
@@ -34,7 +46,6 @@ const auth = createAuthFlow({
   endpoints: {
     login: '/auth/login',
     refresh: '/auth/refresh',
-    logout: '/auth/logout',
   },
   tokens: {
     access: 'accessToken',
@@ -52,14 +63,12 @@ const user = await auth.login({
 const data = await auth.get('/api/profile');
 
 // Check authentication
-const isAuthenticated = auth.isAuthenticated();
+const isAuth = auth.isAuthenticated();
 ```
 
-### Cookie-Based Authentication
+## Cookie-Based Authentication
 
 ```typescript
-import { createAuthFlow } from '@jmndao/auth-flow';
-
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
   tokenSource: 'cookies',
@@ -75,13 +84,13 @@ const auth = createAuthFlow({
 });
 ```
 
-### Next.js Server Actions
+## Next.js Server Components
 
 ```typescript
 import { cookies } from 'next/headers';
 import { createAuthFlow } from '@jmndao/auth-flow';
 
-export async function loginAction(credentials) {
+export async function getProfile() {
   const cookieStore = await cookies();
 
   const auth = createAuthFlow(config, {
@@ -91,13 +100,11 @@ export async function loginAction(credentials) {
     },
   });
 
-  return await auth.login(credentials);
+  return await auth.get('/api/profile');
 }
 ```
 
-## Advanced Features
-
-### Enhanced Client (v2)
+## Enhanced Client (v2)
 
 ```typescript
 import { createAuthFlowV2 } from '@jmndao/auth-flow/v2';
@@ -111,22 +118,10 @@ const auth = createAuthFlowV2({
 });
 ```
 
-### Middleware (Optional)
-
-```typescript
-import { createNextJSMiddleware } from '@jmndao/auth-flow/middleware';
-
-export const middleware = createNextJSMiddleware({
-  tokenName: 'accessToken',
-  redirectUrl: '/login',
-  publicPaths: ['/login', '/register'],
-});
-```
-
 ## HTTP Methods
 
 ```typescript
-// All standard HTTP methods
+// All HTTP methods supported
 const users = await auth.get('/api/users');
 const newUser = await auth.post('/api/users', userData);
 const updated = await auth.put('/api/users/1', updates);
@@ -153,26 +148,39 @@ await auth.clearTokens();
 const isAuth = auth.isAuthenticated();
 ```
 
-## Framework Integration
+## Framework Compatibility
 
-AuthFlow works seamlessly with popular frameworks:
+AuthFlow works with all major JavaScript frameworks:
 
-- **Next.js** - App Router and Pages Router support
-- **React** - Client and server components
-- **Vue** - Composition and Options API
-- **Express** - Middleware and route handlers
-- **React Native** - AsyncStorage support
+- **✅ Next.js** - App Router and Pages Router support
+- **✅ React** - Client and server components
+- **✅ Vue/Nuxt** - Composition and Options API
+- **✅ Express** - Middleware and route handlers
+- **✅ SvelteKit** - Server and client-side
+- **✅ Vanilla JS** - Browser and Node.js environments
 
-## Configuration
+## Configuration Presets
 
-For detailed configuration options, see [Configuration Guide](./docs/configuration.md).
+```typescript
+import {
+  createProductionAuthFlow,
+  createPerformantAuthFlow,
+  createSecureAuthFlow,
+  createResilientAuthFlow,
+} from '@jmndao/auth-flow/v2';
 
-Common configurations:
+// Production-ready with monitoring
+const prodAuth = createProductionAuthFlow('https://api.example.com');
 
-- [Cookie Setup](./docs/configuration.md#cookie-storage)
-- [Security Options](./docs/configuration.md#security)
-- [Retry Logic](./docs/configuration.md#retry-configuration)
-- [Caching Strategies](./docs/configuration.md#caching)
+// High-performance with caching
+const fastAuth = createPerformantAuthFlow('https://api.example.com');
+
+// Security-focused with encryption
+const secureAuth = createSecureAuthFlow('https://api.example.com', 'encryption-key', 'signing-key');
+
+// Resilient for unreliable networks
+const resilientAuth = createResilientAuthFlow('https://api.example.com');
+```
 
 ## Error Handling
 
@@ -188,13 +196,12 @@ try {
 }
 ```
 
-## TypeScript
+## Documentation
 
-Full TypeScript support with comprehensive type definitions:
-
-```typescript
-import type { AuthFlowConfig, TokenPair, LoginResponse } from '@jmndao/auth-flow';
-```
+- [API Reference](./docs/api-reference.md) - Complete API documentation
+- [Examples](./docs/examples.md) - Real-world usage examples
+- [Troubleshooting](./docs/troubleshooting.md) - Common issues and solutions
+- [Middleware Setup](./docs/middleware-setup.md) - Next.js middleware configuration
 
 ## Environment Support
 
@@ -203,14 +210,6 @@ import type { AuthFlowConfig, TokenPair, LoginResponse } from '@jmndao/auth-flow
 - **React Native** - With AsyncStorage
 - **Edge Runtime** - Vercel, Cloudflare Workers
 
-## Documentation
-
-- [Configuration Guide](./docs/configuration.md)
-- [API Reference](./docs/api-reference.md)
-- [Migration Guide](./docs/migration-guide.md)
-- [Examples](./docs/examples.md)
-- [Troubleshooting](./docs/troubleshooting.md)
-
 ## Contributing
 
 Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md).
@@ -218,9 +217,3 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
-
-## Support
-
-- [GitHub Issues](https://github.com/jmndao/auth-flow/issues)
-- [Discussions](https://github.com/jmndao/auth-flow/discussions)
-- [Documentation](https://github.com/jmndao/auth-flow/tree/main/docs)

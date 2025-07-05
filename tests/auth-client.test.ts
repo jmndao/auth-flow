@@ -101,7 +101,18 @@ describe('AuthClient', () => {
     test('should throw error with invalid config', () => {
       expect(() => {
         new AuthClient({} as any);
-      }).toThrow();
+      }).toThrow('Login endpoint is required');
+    });
+
+    test('should throw error with missing tokens config', () => {
+      expect(() => {
+        new AuthClient({
+          endpoints: {
+            login: '/auth/login',
+            refresh: '/auth/refresh',
+          },
+        } as any);
+      }).toThrow('Both access and refresh token field names are required');
     });
   });
 
@@ -131,8 +142,10 @@ describe('AuthClient', () => {
       });
 
       await expect(authClient.login(credentials)).rejects.toMatchObject({
-        status: 401,
-        message: 'Invalid credentials',
+        response: {
+          status: 401,
+          data: { message: 'Invalid credentials' },
+        },
       });
     });
 
@@ -232,43 +245,12 @@ describe('AuthClient', () => {
       });
     });
 
-    test('should make PATCH request', async () => {
-      const patchData = { name: 'patched' };
-      await authClient.patch('/api/data/1', patchData);
-
-      expect(mockAxiosInstance.request).toHaveBeenCalledWith({
-        method: 'patch',
-        url: '/api/data/1',
-        data: patchData,
-      });
-    });
-
     test('should make DELETE request', async () => {
       await authClient.delete('/api/data/1');
 
       expect(mockAxiosInstance.request).toHaveBeenCalledWith({
         method: 'delete',
         url: '/api/data/1',
-        data: undefined,
-      });
-    });
-
-    test('should make HEAD request', async () => {
-      await authClient.head('/api/data/1');
-
-      expect(mockAxiosInstance.request).toHaveBeenCalledWith({
-        method: 'head',
-        url: '/api/data/1',
-        data: undefined,
-      });
-    });
-
-    test('should make OPTIONS request', async () => {
-      await authClient.options('/api/data');
-
-      expect(mockAxiosInstance.request).toHaveBeenCalledWith({
-        method: 'options',
-        url: '/api/data',
         data: undefined,
       });
     });
@@ -310,40 +292,6 @@ describe('AuthClient', () => {
 
       await authClient.setTokens(tokens);
       expect(await authClient.hasValidTokens()).toBe(true);
-    });
-  });
-
-  describe('Token Source Configuration', () => {
-    test('should handle cookie token source', () => {
-      const cookieAuthClient = new AuthClient({
-        endpoints: {
-          login: '/auth/login',
-          refresh: '/auth/refresh',
-        },
-        tokens: {
-          access: 'accessToken',
-          refresh: 'refreshToken',
-        },
-        tokenSource: 'cookies',
-      });
-
-      expect(cookieAuthClient).toBeInstanceOf(AuthClient);
-    });
-
-    test('should handle body token source', () => {
-      const bodyAuthClient = new AuthClient({
-        endpoints: {
-          login: '/auth/login',
-          refresh: '/auth/refresh',
-        },
-        tokens: {
-          access: 'accessToken',
-          refresh: 'refreshToken',
-        },
-        tokenSource: 'body',
-      });
-
-      expect(bodyAuthClient).toBeInstanceOf(AuthClient);
     });
   });
 

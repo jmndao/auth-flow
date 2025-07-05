@@ -30,10 +30,6 @@ export type { CircuitBreakerConfig, HealthConfig } from './types/resilience';
 
 /**
  * Creates a new AuthFlow v2.0 client instance with automatic context detection
- *
- * @param config - v2.0 configuration object or base URL string
- * @param context - Server-side context (auto-detected if not provided)
- * @returns AuthFlow v2.0 client instance
  */
 export const createAuthFlowV2: CreateAuthFlowV2 = (
   config: string | Partial<AuthFlowV2Config>,
@@ -69,23 +65,6 @@ export const createAuthFlowV2: CreateAuthFlowV2 = (
 
   // Use provided context or auto-detect
   const finalContext = context || ContextDetector.getAutoContext();
-
-  // Debug logging for context detection
-  if (baseConfig.debugMode || process.env.NODE_ENV !== 'production') {
-    const envInfo = ContextDetector.getEnvironmentInfo();
-    const contextInfo = {
-      hasCookies: !!finalContext.cookies,
-      hasHeaders: !!finalContext.headers,
-      hasCookieSetter: !!finalContext.cookieSetter,
-      hasReq: !!finalContext.req,
-      hasRes: !!finalContext.res,
-    };
-
-    if (baseConfig.debugMode) {
-      console.debug('[AuthFlow] Detected environment:', envInfo);
-      console.debug('[AuthFlow] Context information:', contextInfo);
-    }
-  }
 
   return new AuthFlowV2ClientImpl(baseConfig, finalContext);
 };
@@ -173,7 +152,6 @@ export const authFlowPresets: AuthFlowPresets = {
    * Development configuration with debugging enabled
    */
   development: {
-    debugMode: true,
     caching: {
       enabled: true,
       defaultTTL: 60000, // 1 minute for quick testing
@@ -253,11 +231,6 @@ export const authFlowPresets: AuthFlowPresets = {
 
 /**
  * Quick preset application function
- *
- * @param preset - Preset name to apply
- * @param baseURL - Base URL for the API
- * @param overrides - Additional configuration overrides
- * @returns AuthFlow v2.0 client instance
  */
 export function createAuthFlowWithPreset(
   preset: keyof AuthFlowPresets,
@@ -356,7 +329,6 @@ export function diagnoseAuthFlowEnvironment() {
     recommendations: {
       tokenSource: envInfo.isServer ? 'cookies' : 'body',
       storage: envInfo.isNextJS ? 'cookies' : envInfo.isServer ? 'memory' : 'localStorage',
-      debugMode: envInfo.nodeEnv !== 'production',
     },
     compatibility: {
       nextJS: envInfo.isNextJS,
@@ -400,10 +372,8 @@ export function generateSmartConfig(
         waitForCookies: 1000,
         fallbackToBody: true,
         retryCount: 3,
-        debugMode: diagnosis.recommendations.debugMode,
       },
     },
-    debugMode: diagnosis.recommendations.debugMode,
     caching: {
       enabled: true,
       defaultTTL: 300000,

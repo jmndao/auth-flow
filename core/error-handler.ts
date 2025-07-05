@@ -1,9 +1,13 @@
 import type { AuthError } from '../types';
 
+/**
+ * Handles authentication errors with retry logic and error normalization
+ * Provides utilities for error categorization and recovery strategies
+ */
 export class ErrorHandler {
-  private onAuthError?: (error: AuthError) => void;
-  private retryAttempts: number;
-  private retryDelay: number;
+  private readonly onAuthError?: (error: AuthError) => void;
+  private readonly retryAttempts: number;
+  private readonly retryDelay: number;
 
   constructor(
     onAuthError?: (error: AuthError) => void,
@@ -15,6 +19,9 @@ export class ErrorHandler {
     this.retryDelay = retryDelay;
   }
 
+  /**
+   * Handles and normalizes errors, calling error callback for auth errors
+   */
   handleError(error: any): AuthError {
     const authError = this.normalizeError(error);
 
@@ -22,14 +29,17 @@ export class ErrorHandler {
     if (this.onAuthError && this.isAuthenticationError(authError)) {
       try {
         this.onAuthError(authError);
-      } catch (callbackError) {
-        console.error('Error in onAuthError callback:', callbackError);
+      } catch {
+        // Error in callback should not break the flow - ignore silently
       }
     }
 
     return authError;
   }
 
+  /**
+   * Normalizes various error types into consistent AuthError format
+   */
   private normalizeError(error: any): AuthError {
     // Handle axios-style errors
     if (error.response) {
@@ -60,10 +70,16 @@ export class ErrorHandler {
     };
   }
 
+  /**
+   * Checks if error is an authentication error (401/403)
+   */
   isAuthenticationError(error: AuthError): boolean {
     return error.status === 401 || error.status === 403;
   }
 
+  /**
+   * Checks if error indicates token expiration
+   */
   isTokenExpiredError(error: AuthError): boolean {
     const tokenExpiredMessages = [
       'token expired',
@@ -78,6 +94,9 @@ export class ErrorHandler {
     return error.status === 401 && tokenExpiredMessages.some((msg) => message.includes(msg));
   }
 
+  /**
+   * Checks if error indicates refresh token problems
+   */
   isRefreshTokenError(error: AuthError): boolean {
     const refreshTokenMessages = [
       'refresh token expired',
@@ -90,11 +109,17 @@ export class ErrorHandler {
     return error.status === 401 && refreshTokenMessages.some((msg) => message.includes(msg));
   }
 
+  /**
+   * Checks if error is a network connectivity issue
+   */
   isNetworkError(error: AuthError): boolean {
     return error.status === 0 || error.code === 'NETWORK_ERROR';
   }
 
-  shouldRetry(error: AuthError, _attemptCount: number = 0): boolean {
+  /**
+   * Determines if an error should be retried
+   */
+  shouldRetry(error: AuthError): boolean {
     // Don't retry auth errors
     if (this.isAuthenticationError(error)) {
       return false;
@@ -108,6 +133,9 @@ export class ErrorHandler {
     return false;
   }
 
+  /**
+   * Executes operation with retry logic
+   */
   async executeWithRetry<T>(
     operation: () => Promise<T>,
     maxAttempts: number = this.retryAttempts
@@ -121,7 +149,7 @@ export class ErrorHandler {
         lastError = this.normalizeError(error);
 
         // Don't retry if not retryable
-        if (!this.shouldRetry(lastError, attempt)) {
+        if (!this.shouldRetry(lastError)) {
           throw lastError;
         }
 
@@ -137,11 +165,14 @@ export class ErrorHandler {
     throw lastError!;
   }
 
+  /**
+   * Utility method to sleep for specified milliseconds
+   */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // Static utility methods
+  // Static utility methods for creating specific error types
   static createAuthError(status: number, message: string, code?: string): AuthError {
     return {
       status,

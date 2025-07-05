@@ -1,73 +1,36 @@
-/**
- * Optional middleware utilities for AuthFlow
- *
- * This module provides lightweight authentication middleware
- * for various frameworks (Next.js, Express, etc.)
- */
+import type { AuthClient } from '../core/auth-client';
+import type { AuthFlowV2Client } from '../types/authflow-v2';
 
-import { AuthCheckResult, MiddlewareConfig, TokenValidationResult } from '../types/middleware';
-export type { TokenValidationResult, MiddlewareConfig, AuthCheckResult } from '../types/middleware';
+export type AuthFlowInstance = AuthClient | AuthFlowV2Client;
 
-/**
- * Lightweight JWT token validation for middleware
- */
-export function validateJWTToken(token: string): TokenValidationResult {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return { isValid: false, error: 'Invalid token format' };
-    }
-
-    const payload = JSON.parse(atob(parts[1]));
-
-    if (payload.exp && payload.exp < Date.now() / 1000) {
-      return { isValid: false, error: 'Token expired', payload };
-    }
-
-    return { isValid: true, token, payload };
-  } catch {
-    return { isValid: false, error: 'Invalid token payload' };
-  }
+export interface MiddlewareConfig {
+  redirectUrl?: string;
+  publicPaths?: string[];
+  protectedPaths?: string[];
+  skipValidation?: (path: string) => boolean;
+  includeCallbackUrl?: boolean;
 }
 
 /**
- * Extract token from request (framework agnostic)
+ * Matches a path against a pattern (supports wildcards)
  */
-export function extractTokenFromRequest(request: any, tokenName: string): string | null {
-  // Next.js style
-  if (request.cookies?.get) {
-    return request.cookies.get(tokenName)?.value || null;
+function matchPath(pattern: string, path: string): boolean {
+  if (pattern.includes('*')) {
+    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+    return regex.test(path);
   }
-
-  // Express style
-  if (request.cookies && typeof request.cookies === 'object') {
-    return request.cookies[tokenName] || null;
-  }
-
-  // Manual cookie header parsing
-  const cookieHeader = request.headers?.cookie;
-  if (cookieHeader) {
-    const cookies = cookieHeader.split(';');
-    for (const cookie of cookies) {
-      const [key, value] = cookie.trim().split('=');
-      if (key === tokenName) {
-        return decodeURIComponent(value);
-      }
-    }
-  }
-
-  return null;
+  return pattern === path;
 }
 
 /**
- * Check if path should be protected
+ * Determines if a path should be protected based on configuration
  */
-export function shouldProtectPath(path: string, config: Partial<MiddlewareConfig>): boolean {
-  if (config.skipValidation?.(path)) {
+function shouldProtectPath(path: string, config: Partial<MiddlewareConfig>): boolean {
+  if (config.publicPaths?.some((pattern) => matchPath(pattern, path))) {
     return false;
   }
 
-  if (config.publicPaths?.some((pattern) => matchPath(pattern, path))) {
+  if (config.skipValidation?.(path)) {
     return false;
   }
 
@@ -79,105 +42,194 @@ export function shouldProtectPath(path: string, config: Partial<MiddlewareConfig
 }
 
 /**
- * Simple path matching with wildcards
+ * Validates a JWT token and returns validation result
  */
-function matchPath(pattern: string, path: string): boolean {
-  if (pattern.includes('*')) {
-    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
-    return regex.test(path);
+function validateToken(token: string): { isValid: boolean; payload?: any } {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return { isValid: false };
+
+    const payload = JSON.parse(atob(parts[1]));
+
+    if (payload.exp && payload.exp < Date.now() / 1000) {
+      return { isValid: false, payload };
+    }
+
+    return { isValid: true, payload };
+  } catch {
+    return { isValid: false };
   }
-  return pattern === path;
 }
 
 /**
- * Next.js specific middleware helper
+ * Gets token field names from auth flow configuration
  */
-export function createNextJSMiddleware(config: MiddlewareConfig) {
-  return function middleware(request: any) {
+function getTokenNames(authFlow: AuthFlowInstance): { access: string; refresh: string } {
+  const config = (authFlow as any).config;
+  return {
+    access: config?.tokens?.access || 'c_aToken',
+    refresh: config?.tokens?.refresh || 'c_rToken',
+  };
+}
+
+/**
+ * Creates authentication middleware for Next.js
+ *
+ * Note: This function requires Next.js environment.
+ * Token refresh in middleware is complex and may not work reliably.
+ * For production apps, consider implementing token refresh in API routes or server components.
+ * See: https://github.com/jmndao/auth-flow/blob/main/docs/middleware-setup.md
+ */
+export function createAuthMiddleware(authFlow: AuthFlowInstance, config: MiddlewareConfig = {}) {
+  // Check if Next.js is available
+  let NextResponse: any;
+
+  try {
+    const nextServer = require('next/server');
+    NextResponse = nextServer.NextResponse;
+  } catch {
+    throw new Error(
+      'createAuthMiddleware requires Next.js environment. Please install Next.js or use this function only in Next.js projects.'
+    );
+  }
+
+  const tokenNames = getTokenNames(authFlow);
+
+  return async function middleware(request: any) {
     const path = request.nextUrl.pathname;
 
+    // Check if path should be protected
     if (!shouldProtectPath(path, config)) {
-      return;
+      return NextResponse.next();
     }
 
-    const token = extractTokenFromRequest(request, config.tokenName);
+    // Get tokens from cookies
+    const accessToken = request.cookies.get(tokenNames.access)?.value;
+    const refreshToken = request.cookies.get(tokenNames.refresh)?.value;
 
-    if (!token) {
+    // If no refresh token, redirect to login
+    if (!refreshToken) {
       if (config.redirectUrl) {
-        return Response.redirect(new URL(config.redirectUrl, request.url));
+        const url = new URL(config.redirectUrl, request.url);
+        if (config.includeCallbackUrl) {
+          url.searchParams.set('callbackUrl', path);
+        }
+        return NextResponse.redirect(url);
       }
-      return new Response('Unauthorized', { status: 401 });
+      return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    const validation = validateJWTToken(token);
+    // Check refresh token validity
+    const refreshValidation = validateToken(refreshToken);
+    if (!refreshValidation.isValid) {
+      const response = config.redirectUrl
+        ? NextResponse.redirect(new URL(config.redirectUrl, request.url))
+        : new NextResponse('Unauthorized', { status: 401 });
 
-    if (!validation.isValid) {
-      if (config.redirectUrl) {
-        return Response.redirect(new URL(config.redirectUrl, request.url));
-      }
-      return new Response('Unauthorized', { status: 401 });
+      response.cookies.delete(tokenNames.access);
+      response.cookies.delete(tokenNames.refresh);
+      return response;
     }
 
-    return;
+    // If we have a valid access token, continue
+    if (accessToken) {
+      const accessValidation = validateToken(accessToken);
+      if (accessValidation.isValid) {
+        return NextResponse.next();
+      }
+    }
+
+    // Access token is missing or expired - redirect to login for token refresh
+    // Note: Token refresh in middleware is not recommended for production
+    const response = config.redirectUrl
+      ? NextResponse.redirect(new URL(config.redirectUrl, request.url))
+      : new NextResponse('Unauthorized', { status: 401 });
+
+    // Clear invalid access token but keep refresh token
+    response.cookies.delete(tokenNames.access);
+    return response;
   };
 }
 
 /**
- * Express specific middleware helper
+ * Creates server-side authentication checker for use in server components and API routes
  */
-export function createExpressMiddleware(config: MiddlewareConfig) {
-  return function middleware(req: any, res: any, next: () => void) {
-    const path = req.path;
+export async function createServerAuthChecker(authFlow: AuthFlowInstance) {
+  return async function checkAuth(): Promise<{
+    isAuthenticated: boolean;
+    user?: any;
+    error?: string;
+  }> {
+    try {
+      const hasValidTokens = await authFlow.hasValidTokens();
 
-    if (!shouldProtectPath(path, config)) {
-      return next();
-    }
+      if (hasValidTokens) {
+        const tokens = await authFlow.getTokens();
 
-    const token = extractTokenFromRequest(req, config.tokenName);
+        if (tokens?.accessToken) {
+          try {
+            const payload = JSON.parse(atob(tokens.accessToken.split('.')[1]));
+            return { isAuthenticated: true, user: payload };
+          } catch {
+            return { isAuthenticated: true };
+          }
+        }
 
-    if (!token) {
-      if (config.redirectUrl) {
-        return res.redirect(config.redirectUrl);
+        return { isAuthenticated: true };
       }
-      return res.status(401).json({ error: 'Unauthorized' });
+
+      return { isAuthenticated: false, error: 'No valid tokens' };
+    } catch (error: any) {
+      return { isAuthenticated: false, error: error.message || 'Auth check failed' };
     }
-
-    const validation = validateJWTToken(token);
-
-    if (!validation.isValid) {
-      if (config.redirectUrl) {
-        return res.redirect(config.redirectUrl);
-      }
-      return res.status(401).json({ error: 'Unauthorized', reason: validation.error });
-    }
-
-    req.user = validation.payload;
-    next();
   };
 }
 
 /**
- * Server component authentication check
+ * Creates wrapper for server actions with authentication
  */
-export async function checkServerAuth(
-  cookieStore: any,
-  tokenName: string
-): Promise<AuthCheckResult> {
-  try {
-    const token = cookieStore.get?.(tokenName)?.value || cookieStore[tokenName];
+export function createServerActionWrapper(authFlow: AuthFlowInstance) {
+  return function withAuth<T extends any[], R>(action: (...args: T) => Promise<R>) {
+    return async function wrappedAction(...args: T): Promise<R> {
+      // Set up external cookie setters for the auth flow
+      const cookieManager =
+        (authFlow as any).cookieManager || (authFlow as any).tokenManager?.storageAdapter;
 
-    if (!token) {
-      return { isAuthenticated: false, error: 'No token found' };
-    }
+      if (cookieManager && cookieManager.options) {
+        cookieManager.options.externalSetter = async (
+          key: string,
+          value: string,
+          options: any = {}
+        ) => {
+          try {
+            // Dynamic import to avoid build-time dependency
+            const nextHeaders = await require('next/headers');
+            const cookieStore = await nextHeaders.cookies();
+            cookieStore.set(key, value, {
+              secure: process.env.NODE_ENV === 'production',
+              sameSite: 'lax',
+              path: '/',
+              maxAge: 60 * 60 * 24 * 7, // 7 days
+              ...options,
+            });
+          } catch {
+            // next/headers not available - ignore silently
+          }
+        };
 
-    const validation = validateJWTToken(token);
+        cookieManager.options.externalRemover = async (key: string) => {
+          try {
+            // Dynamic import to avoid build-time dependency
+            const nextHeaders = await require('next/headers');
+            const cookieStore = await nextHeaders.cookies();
+            cookieStore.delete(key);
+          } catch {
+            // next/headers not available - ignore silently
+          }
+        };
+      }
 
-    if (!validation.isValid) {
-      return { isAuthenticated: false, error: validation.error };
-    }
-
-    return { isAuthenticated: true, user: validation.payload };
-  } catch {
-    return { isAuthenticated: false, error: 'Authentication check failed' };
-  }
+      return action(...args);
+    };
+  };
 }

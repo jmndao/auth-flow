@@ -1,18 +1,29 @@
 # Examples & Use Cases
 
-Real-world examples for common scenarios.
+Real-world examples for common scenarios using the cleaned AuthFlow implementation.
 
 ## React Application
 
 ```typescript
 // hooks/useAuth.ts
-import { createAuthFlowV2 } from '@jmndao/auth-flow/v2';
+import { createAuthFlow } from '@jmndao/auth-flow';
 import { useEffect, useState } from 'react';
 
 export function useAuth() {
   const [auth] = useState(() =>
-    createAuthFlowV2('https://api.example.com')
+    createAuthFlow({
+      baseURL: 'https://api.example.com',
+      endpoints: {
+        login: '/auth/login',
+        refresh: '/auth/refresh',
+      },
+      tokens: {
+        access: 'accessToken',
+        refresh: 'refreshToken',
+      },
+    })
   );
+
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -56,60 +67,86 @@ function App() {
 }
 ```
 
-## Next.js Application
+## Next.js App Router
 
 ```typescript
 // lib/auth.ts
 import { createAuthFlow } from '@jmndao/auth-flow';
 
-export const createServerAuth = (req, res) => {
-  return createAuthFlow(
-    {
-      baseURL: process.env.API_URL,
-      tokenSource: 'cookies',
-      storage: {
-        type: 'cookies',
-        options: {
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-        },
-      },
+export const authConfig = {
+  baseURL: process.env.API_URL || 'https://api.example.com',
+  tokenSource: 'cookies' as const,
+  storage: {
+    type: 'cookies' as const,
+    options: {
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
     },
-    { req, res }
-  );
+  },
+  endpoints: {
+    login: '/auth/login',
+    refresh: '/auth/refresh',
+    logout: '/auth/logout',
+  },
+  tokens: {
+    access: 'accessToken',
+    refresh: 'refreshToken',
+  },
 };
 
-export const clientAuth = createAuthFlow({
-  baseURL: process.env.NEXT_PUBLIC_API_URL,
-  tokenSource: 'cookies',
-});
+export const createServerAuth = (context = {}) => createAuthFlow(authConfig, context);
 
-// pages/api/profile.ts
-export default async function handler(req, res) {
-  const auth = createServerAuth(req, res);
+// app/profile/page.tsx
+import { cookies } from 'next/headers';
+import { createServerAuth } from '@/lib/auth';
+import { redirect } from 'next/navigation';
 
-  if (!auth.isAuthenticated()) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+export default async function ProfilePage() {
+  const cookieStore = await cookies();
 
-  try {
-    const profile = await auth.get('/api/user/profile');
-    res.json(profile);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch profile' });
-  }
-}
-
-// pages/profile.tsx
-export async function getServerSideProps({ req, res }) {
-  const auth = createServerAuth(req, res);
+  const auth = createServerAuth({
+    cookies: () => cookieStore,
+  });
 
   if (!auth.isAuthenticated()) {
-    return { redirect: { destination: '/login', permanent: false } };
+    redirect('/login');
   }
 
   const profile = await auth.get('/api/user/profile');
-  return { props: { profile } };
+
+  return (
+    <div>
+      <h1>Profile</h1>
+      <p>Welcome, {profile.name}</p>
+    </div>
+  );
+}
+
+// app/actions.ts
+import { cookies } from 'next/headers';
+import { createServerAuth } from '@/lib/auth';
+
+export async function loginAction(formData: FormData) {
+  const cookieStore = await cookies();
+
+  const auth = createServerAuth({
+    cookies: () => cookieStore,
+    cookieSetter: (name, value, options) => {
+      cookieStore.set(name, value, options);
+    },
+  });
+
+  const credentials = {
+    email: formData.get('email') as string,
+    password: formData.get('password') as string,
+  };
+
+  try {
+    const user = await auth.login(credentials);
+    return { success: true, user };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 }
 ```
 
@@ -119,37 +156,69 @@ export async function getServerSideProps({ req, res }) {
 // middleware/auth.js
 import { createAuthFlow } from '@jmndao/auth-flow';
 
-export const authMiddleware = (req, res, next) => {
-  const auth = createAuthFlow({
-    baseURL: process.env.API_URL,
-    storage: 'memory',
-  });
+export const createAuthMiddleware = () => {
+  return (req, res, next) => {
+    const auth = createAuthFlow({
+      baseURL: process.env.API_URL,
+      storage: 'memory',
+      endpoints: {
+        login: '/auth/login',
+        refresh: '/auth/refresh',
+      },
+      tokens: {
+        access: 'accessToken',
+        refresh: 'refreshToken',
+      },
+    });
 
-  // Add auth to request object
-  req.auth = auth;
-  next();
+    req.auth = auth;
+    next();
+  };
 };
 
 // routes/users.js
-app.get('/api/users', authMiddleware, async (req, res) => {
+import express from 'express';
+import { createAuthMiddleware } from '../middleware/auth.js';
+
+const router = express.Router();
+const authMiddleware = createAuthMiddleware();
+
+router.get('/api/users', authMiddleware, async (req, res) => {
   try {
+    if (!req.auth.isAuthenticated()) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const users = await req.auth.get('/api/users');
     res.json(users);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+export default router;
 ```
 
 ## Vue.js Application
 
 ```typescript
 // composables/useAuth.ts
-import { createAuthFlowV2 } from '@jmndao/auth-flow/v2';
+import { createAuthFlow } from '@jmndao/auth-flow';
 import { ref, onMounted } from 'vue';
 
 export function useAuth() {
-  const auth = createAuthFlowV2('https://api.example.com');
+  const auth = createAuthFlow({
+    baseURL: 'https://api.example.com',
+    endpoints: {
+      login: '/auth/login',
+      refresh: '/auth/refresh',
+    },
+    tokens: {
+      access: 'accessToken',
+      refresh: 'refreshToken',
+    },
+  });
+
   const isAuthenticated = ref(false);
   const loading = ref(true);
 
@@ -174,9 +243,27 @@ export function useAuth() {
 
   return { auth, isAuthenticated, loading, login, logout };
 }
+
+// components/Dashboard.vue
+<template>
+  <div v-if="!loading">
+    <div v-if="isAuthenticated">
+      <h1>Dashboard</h1>
+      <button @click="logout">Logout</button>
+    </div>
+    <LoginForm v-else @login="login" />
+  </div>
+</template>
+
+<script setup>
+import { useAuth } from '@/composables/useAuth';
+import LoginForm from './LoginForm.vue';
+
+const { auth, isAuthenticated, loading, login, logout } = useAuth();
+</script>
 ```
 
-## High-Performance Dashboard
+## High-Performance Dashboard (V2)
 
 ```typescript
 // For apps with many API calls
@@ -196,14 +283,22 @@ const fetchDashboardData = async () => {
 };
 
 // Monitor performance
-setInterval(() => {
-  const metrics = auth.getPerformanceMetrics();
-  console.log({
-    totalRequests: metrics.totalRequests,
-    cacheHitRate: metrics.cacheHitRate,
-    averageResponseTime: metrics.averageResponseTime,
-  });
-}, 60000); // Every minute
+const setupMonitoring = () => {
+  setInterval(() => {
+    const metrics = auth.getPerformanceMetrics();
+    console.log({
+      totalRequests: metrics.totalRequests,
+      cacheHitRate: metrics.cacheHitRate,
+      averageResponseTime: metrics.averageResponseTime,
+    });
+  }, 60000); // Every minute
+};
+
+// Clear cache when needed
+const refreshData = () => {
+  auth.clearCache('/api/users/*');
+  fetchDashboardData();
+};
 ```
 
 ## Microservices Architecture
@@ -213,9 +308,9 @@ setInterval(() => {
 import { createAuthFlowV2 } from '@jmndao/auth-flow/v2';
 
 class APIClient {
-  private userService: AuthFlowV2Client;
-  private orderService: AuthFlowV2Client;
-  private paymentService: AuthFlowV2Client;
+  private userService;
+  private orderService;
+  private paymentService;
 
   constructor() {
     const baseConfig = {
@@ -226,16 +321,21 @@ class APIClient {
 
     this.userService = createAuthFlowV2({
       baseURL: 'https://users.api.example.com',
+      endpoints: {
+        login: '/auth/login',
+        refresh: '/auth/refresh',
+      },
+      tokens: { access: 'accessToken', refresh: 'refreshToken' },
       ...baseConfig,
     });
 
     this.orderService = createAuthFlowV2({
       baseURL: 'https://orders.api.example.com',
-      ...baseConfig,
-    });
-
-    this.paymentService = createAuthFlowV2({
-      baseURL: 'https://payments.api.example.com',
+      endpoints: {
+        login: '/auth/login',
+        refresh: '/auth/refresh',
+      },
+      tokens: { access: 'accessToken', refresh: 'refreshToken' },
       ...baseConfig,
     });
   }
@@ -251,55 +351,44 @@ class APIClient {
 }
 ```
 
-## Mobile App (React Native)
+## Cookie-Based Authentication
 
 ```typescript
-// For React Native applications
+// Complete cookie setup
 import { createAuthFlow } from '@jmndao/auth-flow';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Custom storage adapter for React Native
-class AsyncStorageAdapter {
-  async get(key: string) {
-    return await AsyncStorage.getItem(key);
-  }
-
-  async set(key: string, value: string) {
-    await AsyncStorage.setItem(key, value);
-  }
-
-  async remove(key: string) {
-    await AsyncStorage.removeItem(key);
-  }
-
-  async clear() {
-    await AsyncStorage.clear();
-  }
-}
 
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  storage: new AsyncStorageAdapter(),
+  tokenSource: 'cookies',
+  storage: {
+    type: 'cookies',
+    options: {
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      waitForCookies: 500,
+      retryCount: 3,
+    },
+  },
+  endpoints: {
+    login: '/auth/login',
+    refresh: '/auth/refresh',
+    logout: '/auth/logout',
+  },
+  tokens: {
+    access: 'authToken',
+    refresh: 'refreshToken',
+  },
 });
 
-// Use in your React Native components
-export function useAuth() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  useEffect(() => {
-    checkAuthStatus();
-  }, []);
-
-  const checkAuthStatus = async () => {
-    const hasTokens = await auth.hasValidTokens();
-    setIsAuthenticated(hasTokens);
-  };
-
-  return { auth, isAuthenticated };
-}
+// Your API should set cookies like this:
+// res.setHeader('Set-Cookie', [
+//   `authToken=${accessToken}; Path=/; SameSite=Lax; Secure`,
+//   `refreshToken=${refreshToken}; Path=/; SameSite=Lax; Secure; HttpOnly`,
+// ]);
 ```
 
-## Security-Critical Application
+## Security-Critical Application (V2)
 
 ```typescript
 // For applications requiring maximum security
@@ -320,37 +409,14 @@ const auth = createSecureAuthFlow(
 const secureData = await auth.get('/api/sensitive-data');
 ```
 
-## Development & Testing
-
-```typescript
-// For development with debugging
-import { createDevAuthFlow } from '@jmndao/auth-flow/v2';
-
-const auth = createDevAuthFlow('https://api.example.com');
-// Automatically enables debug mode and detailed logging
-
-// For testing
-import { mockAuthClient } from '@jmndao/auth-flow/testing';
-
-const mockAuth = mockAuthClient({
-  isAuthenticated: () => true,
-  getTokens: () =>
-    Promise.resolve({
-      accessToken: 'mock-token',
-      refreshToken: 'mock-refresh',
-    }),
-  get: jest.fn().mockResolvedValue({ data: 'mock-data' }),
-});
-
-// Use mockAuth in your tests
-```
-
 ## Error Handling Patterns
 
 ```typescript
 // Comprehensive error handling
-const auth = createAuthFlowV2({
+const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
+  endpoints: { login: '/auth/login', refresh: '/auth/refresh' },
+  tokens: { access: 'accessToken', refresh: 'refreshToken' },
   onAuthError: (error) => {
     if (error.status === 401) {
       // Redirect to login
@@ -379,47 +445,88 @@ try {
 }
 ```
 
-## Performance Monitoring
+## Testing Examples
 
 ```typescript
-// Set up comprehensive monitoring
-const auth = createAuthFlowV2({
-  baseURL: 'https://api.example.com',
-  monitoring: {
-    enabled: true,
-    sampleRate: 0.1, // Monitor 10% of requests
-    onMetrics: (metrics) => {
-      // Send to your analytics service
-      analytics.track('api_performance', {
-        averageResponseTime: metrics.averageResponseTime,
-        successRate: metrics.successRate,
-        cacheHitRate: metrics.cacheHitRate,
-      });
-    },
-  },
+// Mock for testing
+const createMockAuth = () => ({
+  login: jest.fn().mockResolvedValue({ id: 1, name: 'Test User' }),
+  logout: jest.fn().mockResolvedValue(undefined),
+  isAuthenticated: jest.fn().mockReturnValue(true),
+  hasValidTokens: jest.fn().mockResolvedValue(true),
+  getTokens: jest.fn().mockResolvedValue({
+    accessToken: 'mock-access',
+    refreshToken: 'mock-refresh',
+  }),
+  get: jest.fn(),
+  post: jest.fn(),
+  put: jest.fn(),
+  patch: jest.fn(),
+  delete: jest.fn(),
 });
 
-// Get detailed performance insights
-const getPerformanceReport = () => {
-  const metrics = auth.getPerformanceMetrics();
-  const health = auth.getHealthStatus();
-  const cache = auth.getCacheStats();
+// Use in tests
+describe('UserProfile', () => {
+  const mockAuth = createMockAuth();
 
-  return {
-    performance: {
-      totalRequests: metrics.totalRequests,
-      successRate: (metrics.successRate * 100).toFixed(1) + '%',
-      avgResponseTime: metrics.averageResponseTime + 'ms',
-      p95ResponseTime: metrics.p95ResponseTime + 'ms',
-    },
-    caching: {
-      hitRate: (cache.hitRate * 100).toFixed(1) + '%',
-      cacheSize: cache.size + '/' + cache.maxSize,
-    },
-    health: {
-      status: health.isHealthy ? 'Healthy' : 'Unhealthy',
-      lastCheck: new Date(health.lastCheckTime).toLocaleString(),
-    },
+  test('should fetch user profile', async () => {
+    mockAuth.get.mockResolvedValue({ name: 'John Doe' });
+
+    const profile = await fetchUserProfile(mockAuth);
+
+    expect(mockAuth.get).toHaveBeenCalledWith('/api/profile');
+    expect(profile.name).toBe('John Doe');
+  });
+});
+```
+
+## Development & Debugging
+
+```typescript
+// For development with debugging
+import { createDevAuthFlow } from '@jmndao/auth-flow/v2';
+
+const auth = createDevAuthFlow('https://api.example.com');
+// Automatically enables debug mode and detailed logging
+
+// Manual debug info
+const debugInfo = auth.getDebugInfo();
+console.log({
+  isAuthenticated: debugInfo.authState.isAuthenticated,
+  performance: debugInfo.performance,
+  cacheStats: auth.getCacheStats(),
+  healthStatus: auth.getHealthStatus(),
+});
+
+// Performance monitoring
+const metrics = auth.getPerformanceMetrics();
+console.log({
+  requests: metrics.totalRequests,
+  successRate: (metrics.successRate * 100).toFixed(1) + '%',
+  avgTime: metrics.averageResponseTime + 'ms',
+});
+```
+
+## Cleanup and Resource Management
+
+```typescript
+// Proper cleanup
+useEffect(() => {
+  const auth = createAuthFlow(config);
+
+  return () => {
+    // Cleanup when component unmounts
+    if (auth.destroy) {
+      auth.destroy(); // V2 only
+    }
   };
-};
+}, []);
+
+// Or for V2 clients
+const auth = createAuthFlowV2(config);
+
+// When app closes or user logs out
+window.addEventListener('beforeunload', () => {
+  auth.destroy();
+});
 ```

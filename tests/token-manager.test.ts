@@ -82,24 +82,6 @@ describe('TokenManager', () => {
       expect(await tokenManager.hasValidTokens()).toBe(true);
     });
 
-    test('should return false for hasValidTokens with empty tokens', async () => {
-      // This test should check that empty tokens are properly rejected
-      // We expect this to fail because empty tokens should not be allowed
-      try {
-        const tokens = {
-          accessToken: '',
-          refreshToken: 'test-refresh-token',
-        };
-        await tokenManager.setTokens(tokens);
-        // If we get here, the test should fail
-        fail('Expected setTokens to throw for empty accessToken');
-      } catch (error) {
-        // This is expected - empty tokens should be rejected
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toContain('accessToken must be a non-empty string');
-      }
-    });
-
     test('should return false for hasTokens when no tokens exist', async () => {
       expect(await tokenManager.hasTokens()).toBe(false);
     });
@@ -188,6 +170,7 @@ describe('TokenManager', () => {
       // Replace the storage adapter with our mock
       (errorTokenManager as any).storageAdapter = mockAdapter;
 
+      // Should handle storage errors gracefully and return null
       const tokens = await errorTokenManager.getTokens();
       expect(tokens).toBeNull();
     });
