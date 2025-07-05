@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.1.0] - 2025-07-05
+
+### Added
+- Comprehensive middleware setup guide for Next.js
+- Enhanced error messages with Next.js guidance for server environments
+
+### Fixed
+- Removed debug logs and added professional comments
+- Fixed linting issues (unused variables, exception handling)
+- Updated all documentation to match cleaned implementation
+- Fixed framework compatibility examples
+
+### Changed
+- Updated API reference, examples, and troubleshooting guides
+- Improved error handling and token validation logic
+
 ## [2.0.8] - 2025-07-05
 
 ### Features
