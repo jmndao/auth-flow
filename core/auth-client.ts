@@ -57,6 +57,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
       this.config.retry?.delay
     );
 
+    // FIX: Use direct axios import without default
     this.axiosInstance = axios.create({
       baseURL: this.config.baseURL,
       timeout: this.config.timeout,
@@ -154,6 +155,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
     try {
       await this.clearTokens();
 
+      // FIX: Use direct axios import for login requests
       const response = await axios.post(this.getFullUrl(this.config.endpoints.login), credentials, {
         timeout: this.config.timeout,
         baseURL: this.config.baseURL,
@@ -286,6 +288,7 @@ export class AuthClient implements HttpMethod, AuthMethods {
     }
 
     try {
+      // FIX: Use direct axios import for refresh requests
       const response = await axios.post(
         this.getFullUrl(this.config.endpoints.refresh),
         { refreshToken },

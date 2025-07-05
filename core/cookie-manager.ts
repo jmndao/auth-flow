@@ -37,11 +37,6 @@ export class CookieManager implements StorageAdapter {
   }
 
   async get(key: string): Promise<string | null> {
-    // Check temporary store first for immediate access
-    if (this.temporaryStore.has(key)) {
-      return this.temporaryStore.get(key)!;
-    }
-
     // Use cached successful method if available
     if (this.successfulAccessMethod && this.isServer) {
       try {
@@ -56,59 +51,57 @@ export class CookieManager implements StorageAdapter {
       }
     }
 
-    // Try appropriate cookie access method
+    // Try appropriate cookie access method FIRST (before temporary store)
+    let cookieValue: string | null = null;
     if (this.isServer) {
-      const cookieValue = await this.getServerCookie(key);
-      if (cookieValue) {
-        this.temporaryStore.set(key, cookieValue);
-        return cookieValue;
-      }
+      cookieValue = await this.getServerCookie(key);
     } else {
-      const cookieValue = this.getClientCookie(key);
-      if (cookieValue) {
-        this.temporaryStore.set(key, cookieValue);
-        return cookieValue;
-      }
+      cookieValue = this.getClientCookie(key);
+    }
+
+    if (cookieValue) {
+      this.temporaryStore.set(key, cookieValue);
+      return cookieValue;
+    }
+
+    // Check temporary store for previously cached values
+    if (this.temporaryStore.has(key)) {
+      return this.temporaryStore.get(key)!;
     }
 
     // Try fallback tokens as last resort
     return this.tryFallbackTokens(key);
   }
 
-  set(key: string, value: string): void | Promise<void> {
+  async set(key: string, value: string): Promise<void> {
     // Update temporary store immediately for fast access
     this.temporaryStore.set(key, value);
 
-    // Set cookies - return Promise for server-side to be properly awaited
     if (this.isServer) {
-      return this.setServerCookie(key, value);
+      await this.setServerCookie(key, value);
     } else {
       this.setClientCookie(key, value);
     }
   }
 
-  remove(key: string): void | Promise<void> {
+  async remove(key: string): Promise<void> {
     this.temporaryStore.delete(key);
 
     if (this.isServer) {
-      return this.removeServerCookie(key);
+      await this.removeServerCookie(key);
     } else {
       this.removeClientCookie(key);
     }
   }
 
-  clear(): void {
+  async clear(): Promise<void> {
     this.temporaryStore.clear();
+    this.fallbackTokens = null;
   }
 
   setFallbackTokens(tokens: TokenPair): void {
     this.fallbackTokens = tokens;
-    // Cache tokens immediately in temporary store for fast access
-    if (tokens.accessToken && tokens.refreshToken) {
-      this.temporaryStore.set('token', tokens.accessToken);
-      this.temporaryStore.set('accessToken', tokens.accessToken);
-      this.temporaryStore.set('refreshToken', tokens.refreshToken);
-    }
+    // Don't put in temporary store - let real cookies be checked first
   }
 
   getFallbackTokens(): TokenPair | null {
@@ -117,6 +110,25 @@ export class CookieManager implements StorageAdapter {
 
   getOptions(): CookieManagerOptions {
     return this.options;
+  }
+
+  // Method for sync access to check if we have any tokens available
+  hasTokensAvailable(accessKey: string, refreshKey: string): boolean {
+    // Check temporary store first (from real cookies)
+    if (this.temporaryStore.has(accessKey) && this.temporaryStore.has(refreshKey)) {
+      return true;
+    }
+
+    // Check fallback tokens
+    if (
+      this.fallbackTokens &&
+      this.fallbackTokens.accessToken &&
+      this.fallbackTokens.refreshToken
+    ) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -220,12 +232,25 @@ export class CookieManager implements StorageAdapter {
     switch (method) {
       case 'nextjs-cookies': {
         if (this.context.cookies && typeof this.context.cookies === 'function') {
-          const cookieStore = this.context.cookies();
-          // Handle both sync and async cookies
-          const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
-          if (resolvedStore && typeof resolvedStore.get === 'function') {
-            const cookie = resolvedStore.get(key);
-            return cookie?.value || null;
+          try {
+            const cookieStore = this.context.cookies();
+
+            // FIX: Handle both sync and async Next.js cookies
+            let resolvedStore;
+            if (cookieStore && typeof cookieStore.then === 'function') {
+              resolvedStore = await cookieStore;
+            } else {
+              resolvedStore = cookieStore;
+            }
+
+            if (resolvedStore && typeof resolvedStore.get === 'function') {
+              const cookie = resolvedStore.get(key);
+              return cookie?.value || null;
+            }
+          } catch (error) {
+            if (this.options.debugMode) {
+              console.warn(`Next.js cookies access failed for ${key}:`, error);
+            }
           }
         }
         break;
@@ -245,15 +270,45 @@ export class CookieManager implements StorageAdapter {
       case 'cookie-header': {
         const cookieHeader = this.context.req?.headers?.cookie;
         if (cookieHeader) {
-          const cookies = cookieHeader.split(';');
-          for (const cookie of cookies) {
-            const [cookieKey, cookieValue] = cookie.trim().split('=');
-            if (cookieKey === key) {
-              return decodeURIComponent(cookieValue);
-            }
-          }
+          // FIX: Better cookie parsing for malformed cookies
+          return this.parseHeaderCookies(cookieHeader, key);
         }
         break;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * FIX: Improved cookie header parsing that handles malformed data
+   */
+  private parseHeaderCookies(cookieHeader: string, targetKey: string): string | null {
+    try {
+      // Handle various cookie formats and encoding issues
+      const cookies = cookieHeader.split(/[;,]/).map((c) => c.trim());
+
+      for (const cookie of cookies) {
+        if (!cookie) continue;
+
+        const equalIndex = cookie.indexOf('=');
+        if (equalIndex === -1) continue;
+
+        const cookieKey = cookie.substring(0, equalIndex).trim();
+        const cookieValue = cookie.substring(equalIndex + 1).trim();
+
+        if (cookieKey === targetKey && cookieValue) {
+          try {
+            // Try to decode, but fall back to raw value if decoding fails
+            return decodeURIComponent(cookieValue);
+          } catch {
+            // FIX: Return raw value if decoding fails (handles malformed data)
+            return cookieValue;
+          }
+        }
+      }
+    } catch (error) {
+      if (this.options.debugMode) {
+        console.warn('Cookie header parsing failed:', error);
       }
     }
     return null;
@@ -268,17 +323,29 @@ export class CookieManager implements StorageAdapter {
         name: 'nextjs-cookies',
         fn: async (): Promise<string | null> => {
           if (this.context.cookies && typeof this.context.cookies === 'function') {
-            const cookieStore = this.context.cookies();
-            // Handle both sync and async cookies
-            const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
+            try {
+              const cookieStore = this.context.cookies();
 
-            if (resolvedStore && typeof resolvedStore.get === 'function') {
-              const cookie = resolvedStore.get(key);
-              return cookie?.value || null;
-            }
+              // FIX: Handle both sync and async Next.js cookies properly
+              let resolvedStore;
+              if (cookieStore && typeof cookieStore.then === 'function') {
+                resolvedStore = await cookieStore;
+              } else {
+                resolvedStore = cookieStore;
+              }
 
-            if (resolvedStore && typeof resolvedStore === 'object') {
-              return resolvedStore[key] || null;
+              if (resolvedStore && typeof resolvedStore.get === 'function') {
+                const cookie = resolvedStore.get(key);
+                return cookie?.value || null;
+              }
+
+              if (resolvedStore && typeof resolvedStore === 'object') {
+                return resolvedStore[key] || null;
+              }
+            } catch (error) {
+              if (this.options.debugMode) {
+                console.warn(`Next.js cookies failed for ${key}:`, error);
+              }
             }
           }
           return null;
@@ -304,13 +371,7 @@ export class CookieManager implements StorageAdapter {
         fn: (): string | null => {
           const cookieHeader = this.context.req?.headers?.cookie;
           if (cookieHeader) {
-            const cookies = cookieHeader.split(';');
-            for (const cookie of cookies) {
-              const [cookieKey, cookieValue] = cookie.trim().split('=');
-              if (cookieKey === key) {
-                return decodeURIComponent(cookieValue);
-              }
-            }
+            return this.parseHeaderCookies(cookieHeader, key);
           }
           return null;
         },
@@ -319,15 +380,15 @@ export class CookieManager implements StorageAdapter {
         name: 'nextjs-headers',
         fn: async (): Promise<string | null> => {
           if (this.context.headers && typeof this.context.headers === 'function') {
-            const headers = await this.context.headers();
-            const cookieHeader = headers.get('cookie');
-            if (cookieHeader) {
-              const cookies = cookieHeader.split(';');
-              for (const cookie of cookies) {
-                const [cookieKey, cookieValue] = cookie.trim().split('=');
-                if (cookieKey === key) {
-                  return decodeURIComponent(cookieValue);
-                }
+            try {
+              const headers = await this.context.headers();
+              const cookieHeader = headers.get('cookie');
+              if (cookieHeader) {
+                return this.parseHeaderCookies(cookieHeader, key);
+              }
+            } catch (error) {
+              if (this.options.debugMode) {
+                console.warn(`Next.js headers failed for ${key}:`, error);
               }
             }
           }
@@ -418,8 +479,15 @@ export class CookieManager implements StorageAdapter {
   ): Promise<void> {
     try {
       const cookieStore = this.context.cookies!();
-      // Handle both sync and async cookies
-      const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
+
+      // FIX: Handle both sync and async Next.js cookies
+      let resolvedStore;
+      if (cookieStore && typeof cookieStore.then === 'function') {
+        resolvedStore = await cookieStore;
+      } else {
+        resolvedStore = cookieStore;
+      }
+
       if (resolvedStore && resolvedStore.set && typeof resolvedStore.set === 'function') {
         resolvedStore.set(key, value, options);
       }
@@ -519,8 +587,15 @@ export class CookieManager implements StorageAdapter {
   private async removeWithNextjsCookies(key: string, options: Record<string, any>): Promise<void> {
     try {
       const cookieStore = this.context.cookies!();
-      // Handle both sync and async cookies
-      const resolvedStore = cookieStore instanceof Promise ? await cookieStore : cookieStore;
+
+      // FIX: Handle both sync and async Next.js cookies
+      let resolvedStore;
+      if (cookieStore && typeof cookieStore.then === 'function') {
+        resolvedStore = await cookieStore;
+      } else {
+        resolvedStore = cookieStore;
+      }
+
       if (resolvedStore && resolvedStore.delete && typeof resolvedStore.delete === 'function') {
         resolvedStore.delete(key);
       } else if (resolvedStore && resolvedStore.set && typeof resolvedStore.set === 'function') {

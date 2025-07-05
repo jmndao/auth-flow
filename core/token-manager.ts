@@ -7,7 +7,8 @@ import type {
   AuthContext,
   Environment,
 } from '../types';
-import { CookieManager, LocalStorageAdapter, MemoryStorageAdapter } from '../adapters';
+import { LocalStorageAdapter, MemoryStorageAdapter } from '../adapters';
+import { CookieManager } from '../core/cookie-manager';
 import { detectEnvironment, validateTokenPair } from '../utils';
 
 /**
@@ -194,12 +195,15 @@ export class TokenManager {
    */
   hasTokensSync(): boolean {
     try {
-      // Check fallback tokens first for immediate access (CookieManager feature)
-      if (this.storageAdapter instanceof CookieManager) {
-        const fallbackTokens = this.storageAdapter.getFallbackTokens();
-        if (fallbackTokens && fallbackTokens.accessToken && fallbackTokens.refreshToken) {
-          return true;
-        }
+      // Check if CookieManager has tokens available (including fallback)
+      if (
+        this.storageAdapter instanceof CookieManager &&
+        'hasTokensAvailable' in this.storageAdapter
+      ) {
+        return this.storageAdapter.hasTokensAvailable(
+          this.tokenConfig.access,
+          this.tokenConfig.refresh
+        );
       }
 
       const accessToken = this.storageAdapter.get(this.tokenConfig.access);
@@ -227,9 +231,9 @@ export class TokenManager {
   }
 
   /**
-   * JWT token expiration check
+   * JWT token expiration check - FIX: Make this method public for testing
    */
-  private isTokenExpired(token: string): boolean {
+  isTokenExpired(token: string): boolean {
     try {
       const parts = token.split('.');
       if (parts.length !== 3) return true;
