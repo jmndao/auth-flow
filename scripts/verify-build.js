@@ -9,28 +9,48 @@ function verifyBuild() {
 
   if (!fs.existsSync(distDir)) {
     console.log('dist directory does not exist!');
-    console.log('Run: npm run build:all');
+    console.log('Run: npm run build');
     return false;
   }
 
   const expectedFiles = [
-    // v1 files
+    // Main files
     'index.js',
     'index.esm.js',
     'index.d.ts',
 
-    // v2 files
-    'index-v2.js',
-    'index-v2.esm.js',
-    'index-v2.d.ts',
+    // Presets
+    'presets.js',
+    'presets.esm.js',
+    'presets.d.ts',
 
-    // Middleware files
-    'middleware.js',
-    'middleware.esm.js',
+    // Diagnostics
+    'diagnostics/index.js',
+    'diagnostics/index.esm.js',
+    'diagnostics/index.d.ts',
+
+    // Middleware
+    'middleware/index.js',
+    'middleware/index.esm.js',
+    'middleware/index.d.ts',
+
+    // Framework integrations
+    'frameworks/react/hooks.js',
+    'frameworks/react/hooks.esm.js',
+    'frameworks/react/hooks.d.ts',
+
+    'frameworks/vue/composables.js',
+    'frameworks/vue/composables.esm.js',
+    'frameworks/vue/composables.d.ts',
+
+    'frameworks/nextjs/index.js',
+    'frameworks/nextjs/index.esm.js',
+    'frameworks/nextjs/index.d.ts',
+
+    'frameworks/vanilla/setup.js',
+    'frameworks/vanilla/setup.esm.js',
+    'frameworks/vanilla/setup.d.ts',
   ];
-
-  // Check for middleware types in either location
-  const middlewareTypesPaths = ['middleware.d.ts', 'middleware/index.d.ts'];
 
   console.log('Verifying build outputs...\n');
 
@@ -54,55 +74,17 @@ function verifyBuild() {
     }
   }
 
-  // Check middleware types separately
-  let middlewareTypesFound = false;
-  let middlewareTypesPath = '';
-
-  for (const typesPath of middlewareTypesPaths) {
-    const filePath = path.join(distDir, typesPath);
-    if (fs.existsSync(filePath)) {
-      const stats = fs.statSync(filePath);
-      const sizeKB = (stats.size / 1024).toFixed(1);
-      console.log(`FOUND ${typesPath} (${sizeKB} KB)`);
-      middlewareTypesFound = true;
-      middlewareTypesPath = filePath;
-      presentFiles.push(typesPath);
-      break;
-    }
-  }
-
-  if (!middlewareTypesFound) {
-    console.log(`MISSING middleware types (checked: ${middlewareTypesPaths.join(', ')})`);
-    missingFiles.push('middleware.d.ts');
-    allPresent = false;
-  }
-
-  console.log('\n' + '='.repeat(50));
+  console.log('\n' + '='.repeat(60));
 
   if (allPresent) {
-    console.log('All build outputs are present!');
-    console.log(`Found ${presentFiles.length} files in dist/`);
+    console.log(`All build outputs are present! (${presentFiles.length} files)`);
 
-    // Check middleware.d.ts content
-    if (middlewareTypesFound && middlewareTypesPath) {
-      const content = fs.readFileSync(middlewareTypesPath, 'utf8');
-      if (content.includes('TokenValidationResult') && content.includes('MiddlewareConfig')) {
-        console.log('Middleware types are properly exported!');
-      } else {
-        console.log('WARNING: Middleware types may be incomplete');
-        console.log('   Expected: TokenValidationResult, MiddlewareConfig');
-      }
-    }
-
-    // Show package.json exports check
+    // Verify package.json exports
     const packagePath = path.join(__dirname, '../package.json');
     if (fs.existsSync(packagePath)) {
       const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-      if (pkg.exports && pkg.exports['./middleware']) {
-        console.log('Middleware export path configured in package.json');
-      } else {
-        console.log('WARNING: Middleware export path missing in package.json');
-      }
+      const exportPaths = Object.keys(pkg.exports || {});
+      console.log(`Package exports: ${exportPaths.join(', ')}`);
     }
 
     console.log('\nReady to publish!');
@@ -112,17 +94,7 @@ function verifyBuild() {
     missingFiles.forEach((file) => console.log(`   - ${file}`));
 
     console.log('\nTo fix this, run:');
-    if (missingFiles.some((f) => f.startsWith('index.'))) {
-      console.log('   npm run build');
-    }
-    if (missingFiles.some((f) => f.startsWith('index-v2.'))) {
-      console.log('   npm run build:v2');
-    }
-    if (missingFiles.some((f) => f.startsWith('middleware.'))) {
-      console.log('   npm run build:middleware');
-    }
-    console.log('\n   Or run all at once:');
-    console.log('   npm run build:all');
+    console.log('   npm run build');
 
     return false;
   }
@@ -136,36 +108,18 @@ function runDiagnostics() {
 
   const rootDir = path.join(__dirname, '..');
 
-  // Check TypeScript configs
-  const tsConfigs = ['tsconfig.json', 'tsconfig.v2.json', 'tsconfig.middleware.json'];
-  tsConfigs.forEach((config) => {
-    const configPath = path.join(rootDir, config);
-    if (fs.existsSync(configPath)) {
-      console.log(`FOUND ${config}`);
-    } else {
-      console.log(`MISSING ${config}`);
-    }
-  });
-
-  // Check Rollup configs
-  const rollupConfigs = [
+  // Check essential files
+  const essentialFiles = [
+    'package.json',
+    'tsconfig.json',
     'rollup.config.mjs',
-    'rollup.config.v2.mjs',
-    'rollup.config.middleware.mjs',
+    'index.ts',
+    'presets.ts',
+    'README.md',
+    'CHANGELOG.md',
   ];
-  rollupConfigs.forEach((config) => {
-    const configPath = path.join(rootDir, config);
-    if (fs.existsSync(configPath)) {
-      console.log(`FOUND ${config}`);
-    } else {
-      console.log(`MISSING ${config}`);
-    }
-  });
 
-  // Check source files
-  const sourceFiles = ['index.ts', 'index-v2.ts', 'middleware/index.ts', 'middleware/types.ts'];
-
-  sourceFiles.forEach((file) => {
+  essentialFiles.forEach((file) => {
     const filePath = path.join(rootDir, file);
     if (fs.existsSync(filePath)) {
       console.log(`FOUND ${file}`);
@@ -174,7 +128,27 @@ function runDiagnostics() {
     }
   });
 
-  console.log('\n' + '='.repeat(50));
+  // Check core modules
+  const coreModules = [
+    'core/auth-client.ts',
+    'core/token-manager.ts',
+    'core/request-handler.ts',
+    'types/index.ts',
+    'storage/index.ts',
+    'diagnostics/index.ts',
+  ];
+
+  console.log('\nCore modules:');
+  coreModules.forEach((file) => {
+    const filePath = path.join(rootDir, file);
+    if (fs.existsSync(filePath)) {
+      console.log(`FOUND ${file}`);
+    } else {
+      console.log(`MISSING ${file}`);
+    }
+  });
+
+  console.log('\n' + '='.repeat(60));
 }
 
 // CLI usage

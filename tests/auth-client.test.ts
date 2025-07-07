@@ -1,266 +1,150 @@
 import { AuthClient } from '../core/auth-client';
-import axios from 'axios';
-
-// Mock axios
-jest.mock('axios', () => ({
-  __esModule: true,
-  default: {
-    create: jest.fn(),
-    post: jest.fn(),
-    get: jest.fn(),
-    request: jest.fn(),
-  },
-}));
-
-const mockedAxios = axios as jest.Mocked<typeof axios>;
+import type { AuthConfig } from '../types';
 
 describe('AuthClient', () => {
+  const mockConfig: AuthConfig = {
+    baseURL: 'https://api.example.com',
+    endpoints: {
+      login: '/auth/login',
+      refresh: '/auth/refresh',
+      logout: '/auth/logout',
+    },
+    tokens: {
+      access: 'accessToken',
+      refresh: 'refreshToken',
+    },
+    storage: 'memory',
+  };
+
   let authClient: AuthClient;
-  let mockAxiosInstance: any;
 
   beforeEach(() => {
-    // Reset all mocks
-    jest.clearAllMocks();
+    authClient = new AuthClient(mockConfig);
+  });
 
-    // Create mock axios instance
-    mockAxiosInstance = {
-      request: jest.fn(),
-      get: jest.fn(),
-      post: jest.fn(),
-      put: jest.fn(),
-      patch: jest.fn(),
-      delete: jest.fn(),
-      head: jest.fn(),
-      options: jest.fn(),
-      interceptors: {
-        request: {
-          use: jest.fn(),
-        },
-        response: {
-          use: jest.fn(),
-        },
-      },
-    };
+  describe('login', () => {
+    it('should login successfully and store tokens', async () => {
+      const mockResponse = {
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        user: { id: '1', email: 'test@example.com' },
+      };
 
-    // Mock axios.create to return our mock instance
-    mockedAxios.create = jest.fn().mockReturnValue(mockAxiosInstance);
+      (fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers(),
+        json: () => Promise.resolve(mockResponse),
+      });
 
-    // Mock standalone axios methods
-    mockedAxios.post = jest.fn().mockResolvedValue({
-      data: {
-        user: { id: 1, name: 'Test User' },
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-      },
-      status: 200,
-      statusText: 'OK',
-      headers: {},
+      const result = await authClient.login({ email: 'test@example.com', password: 'password' });
+
+      expect(fetch).toHaveBeenCalledWith(
+        'https://api.example.com/auth/login',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ email: 'test@example.com', password: 'password' }),
+        })
+      );
+
+      expect(result).toEqual(mockResponse);
+      expect(authClient.isAuthenticated()).toBe(true);
     });
 
-    authClient = new AuthClient({
-      endpoints: {
-        login: '/auth/login',
-        refresh: '/auth/refresh',
-      },
-      tokens: {
-        access: 'accessToken',
-        refresh: 'refreshToken',
-      },
+    it('should throw error when tokens are missing from response', async () => {
+      (fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ user: { id: '1' } }),
+      });
+
+      await expect(
+        authClient.login({ email: 'test@example.com', password: 'password' })
+      ).rejects.toThrow('Tokens not found in response');
     });
   });
 
-  describe('Configuration', () => {
-    test('should create AuthClient with valid config', () => {
-      expect(authClient).toBeInstanceOf(AuthClient);
-      expect(mockedAxios.create).toHaveBeenCalledWith({
-        baseURL: undefined,
-        timeout: 10000,
-      });
-    });
-
-    test('should create AuthClient with custom baseURL and timeout', () => {
-      new AuthClient({
-        endpoints: {
-          login: '/auth/login',
-          refresh: '/auth/refresh',
-        },
-        tokens: {
-          access: 'accessToken',
-          refresh: 'refreshToken',
-        },
-        baseURL: 'https://api.example.com',
-        timeout: 5000,
+  describe('logout', () => {
+    it('should logout and clear tokens', async () => {
+      // First login
+      await authClient.setTokens({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
       });
 
-      expect(mockedAxios.create).toHaveBeenCalledWith({
-        baseURL: 'https://api.example.com',
-        timeout: 5000,
-      });
-    });
-
-    test('should throw error with invalid config', () => {
-      expect(() => {
-        new AuthClient({} as any);
-      }).toThrow('Login endpoint is required');
-    });
-
-    test('should throw error with missing tokens config', () => {
-      expect(() => {
-        new AuthClient({
-          endpoints: {
-            login: '/auth/login',
-            refresh: '/auth/refresh',
-          },
-        } as any);
-      }).toThrow('Both access and refresh token field names are required');
-    });
-  });
-
-  describe('Authentication Methods', () => {
-    test('should login successfully', async () => {
-      const credentials = { username: 'test@example.com', password: 'password' };
-
-      const result = await authClient.login(credentials);
-
-      expect(mockedAxios.post).toHaveBeenCalledWith('/auth/login', credentials, expect.any(Object));
-
-      expect(result).toEqual({
-        user: { id: 1, name: 'Test User' },
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-      });
-    });
-
-    test('should handle login errors', async () => {
-      const credentials = { username: 'test@example.com', password: 'wrong' };
-
-      mockedAxios.post = jest.fn().mockRejectedValue({
-        response: {
-          status: 401,
-          data: { message: 'Invalid credentials' },
-        },
+      (fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({}),
       });
 
-      await expect(authClient.login(credentials)).rejects.toMatchObject({
-        response: {
-          status: 401,
-          data: { message: 'Invalid credentials' },
-        },
-      });
-    });
+      await authClient.logout();
 
-    test('should logout successfully', async () => {
-      const authClientWithLogout = new AuthClient({
-        endpoints: {
-          login: '/auth/login',
-          refresh: '/auth/refresh',
-          logout: '/auth/logout',
-        },
-        tokens: {
-          access: 'accessToken',
-          refresh: 'refreshToken',
-        },
-      });
-
-      mockAxiosInstance.post.mockResolvedValue({ data: 'ok' });
-
-      await authClientWithLogout.logout();
-
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/auth/logout');
-    });
-
-    test('should handle logout errors gracefully', async () => {
-      const authClientWithLogout = new AuthClient({
-        endpoints: {
-          login: '/auth/login',
-          refresh: '/auth/refresh',
-          logout: '/auth/logout',
-        },
-        tokens: {
-          access: 'accessToken',
-          refresh: 'refreshToken',
-        },
-      });
-
-      mockAxiosInstance.post.mockRejectedValue(new Error('Network error'));
-
-      // Should not throw, just log warning
-      await expect(authClientWithLogout.logout()).resolves.toBeUndefined();
-    });
-
-    test('should check authentication status', () => {
-      // This is a synchronous method, so it should return false initially
       expect(authClient.isAuthenticated()).toBe(false);
+      expect(await authClient.getTokens()).toBeNull();
     });
   });
 
-  describe('HTTP Methods', () => {
-    beforeEach(() => {
-      mockAxiosInstance.request.mockResolvedValue({
-        data: { message: 'success' },
-        status: 200,
-        statusText: 'OK',
-        headers: {},
+  describe('authenticated requests', () => {
+    beforeEach(async () => {
+      await authClient.setTokens({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
       });
     });
 
-    test('should make GET request', async () => {
-      const response = await authClient.get('/api/data');
-
-      expect(mockAxiosInstance.request).toHaveBeenCalledWith({
-        method: 'get',
-        url: '/api/data',
-        data: undefined,
+    it('should add authorization header to requests', async () => {
+      (fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ data: 'test' }),
       });
 
-      expect(response).toEqual({
-        data: { message: 'success' },
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-      });
+      await authClient.get('/user/profile');
+
+      expect(fetch).toHaveBeenCalledWith(
+        'https://api.example.com/user/profile',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer access-token',
+          }),
+        })
+      );
     });
 
-    test('should make POST request', async () => {
-      const postData = { name: 'test' };
-      const response = await authClient.post('/api/data', postData);
+    it('should refresh tokens on 401 error', async () => {
+      // First request fails with 401
+      (fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+        })
+        // Token refresh succeeds
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              accessToken: 'new-access-token',
+              refreshToken: 'new-refresh-token',
+            }),
+        })
+        // Retry request succeeds
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ data: 'success' }),
+        });
 
-      expect(mockAxiosInstance.request).toHaveBeenCalledWith({
-        method: 'post',
-        url: '/api/data',
-        data: postData,
-      });
+      const result = await authClient.get('/protected-route');
 
-      expect(response.data).toEqual({ message: 'success' });
-    });
-
-    test('should make PUT request', async () => {
-      const putData = { name: 'updated' };
-      await authClient.put('/api/data/1', putData);
-
-      expect(mockAxiosInstance.request).toHaveBeenCalledWith({
-        method: 'put',
-        url: '/api/data/1',
-        data: putData,
-      });
-    });
-
-    test('should make DELETE request', async () => {
-      await authClient.delete('/api/data/1');
-
-      expect(mockAxiosInstance.request).toHaveBeenCalledWith({
-        method: 'delete',
-        url: '/api/data/1',
-        data: undefined,
-      });
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(result.data).toEqual({ data: 'success' });
     });
   });
 
-  describe('Token Management', () => {
-    test('should set and get tokens', async () => {
+  describe('token management', () => {
+    it('should get and set tokens', async () => {
       const tokens = {
-        accessToken: 'new-access-token',
-        refreshToken: 'new-refresh-token',
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
       };
 
       await authClient.setTokens(tokens);
@@ -269,75 +153,16 @@ describe('AuthClient', () => {
       expect(retrievedTokens).toEqual(tokens);
     });
 
-    test('should clear tokens', async () => {
-      const tokens = {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-      };
+    it('should clear tokens', async () => {
+      await authClient.setTokens({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      });
 
-      await authClient.setTokens(tokens);
       await authClient.clearTokens();
+      const tokens = await authClient.getTokens();
 
-      const retrievedTokens = await authClient.getTokens();
-      expect(retrievedTokens).toBeNull();
-    });
-
-    // test('should validate tokens', async () => {
-    //   expect(await authClient.hasValidTokens()).toBe(false);
-
-    //   const tokens = {
-    //     accessToken: 'test-access-token',
-    //     refreshToken: 'test-refresh-token',
-    //   };
-
-    //   await authClient.setTokens(tokens);
-    //   expect(await authClient.hasValidTokens()).toBe(true);
-    // });
-  });
-
-  describe('Callbacks', () => {
-    test('should call onTokenRefresh callback', async () => {
-      const onTokenRefresh = jest.fn();
-
-      const authClientWithCallback = new AuthClient({
-        endpoints: {
-          login: '/auth/login',
-          refresh: '/auth/refresh',
-        },
-        tokens: {
-          access: 'accessToken',
-          refresh: 'refreshToken',
-        },
-        onTokenRefresh,
-      });
-
-      const credentials = { username: 'test@example.com', password: 'password' };
-      await authClientWithCallback.login(credentials);
-
-      expect(onTokenRefresh).toHaveBeenCalledWith({
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-      });
-    });
-
-    test('should call onLogout callback', async () => {
-      const onLogout = jest.fn();
-
-      const authClientWithCallback = new AuthClient({
-        endpoints: {
-          login: '/auth/login',
-          refresh: '/auth/refresh',
-        },
-        tokens: {
-          access: 'accessToken',
-          refresh: 'refreshToken',
-        },
-        onLogout,
-      });
-
-      await authClientWithCallback.logout();
-
-      expect(onLogout).toHaveBeenCalled();
+      expect(tokens).toBeNull();
     });
   });
 });

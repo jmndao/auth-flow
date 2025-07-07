@@ -1,568 +1,367 @@
 # Troubleshooting Guide
 
-Common issues and solutions for AuthFlow.
+## Common Issues
 
-## Configuration Issues
+### Authentication Errors
 
-### Problem: "Login endpoint is required" error
+#### Login Fails with "Tokens not found in response"
 
-**Cause**: Missing required configuration.
+**Problem:** The API response doesn't contain the expected token fields.
 
-**Solution**: Provide complete configuration:
+**Solution:**
+
+1. Check your API response format
+2. Configure custom token field names:
 
 ```typescript
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  endpoints: {
-    login: '/auth/login',
-    refresh: '/auth/refresh',
-  },
   tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
-});
-```
-
-### Problem: "Both access and refresh token field names are required"
-
-**Cause**: Missing tokens configuration.
-
-**Solution**: Specify token field names that match your API:
-
-```typescript
-const auth = createAuthFlow({
-  // ... other config
-  tokens: {
-    access: 'access_token', // matches your API response
+    access: 'access_token', // Match your API response
     refresh: 'refresh_token',
   },
 });
 ```
 
-## Cookie Issues
+#### Token Refresh Fails
 
-### Problem: Cookies not being set or read
+**Problem:** Automatic token refresh is not working.
 
-**Solution**: Use proper cookie configuration:
+**Solutions:**
 
-```typescript
-const auth = createAuthFlow({
-  baseURL: 'https://api.example.com',
-  tokenSource: 'cookies',
-  storage: {
-    type: 'cookies',
-    options: {
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      waitForCookies: 500,
-      retryCount: 3,
-    },
-  },
-  endpoints: { login: '/auth/login', refresh: '/auth/refresh' },
-  tokens: { access: 'accessToken', refresh: 'refreshToken' },
-});
-```
-
-**Common fixes**:
-
-- Set `waitForCookies: 500` to allow cookie propagation time
-- Use `retryCount: 3` for cookie reading retries
-- Ensure your API sets cookies correctly
-
-### Problem: Cookies work in browser but not in SSR
-
-**Solution**: Provide server context for Next.js:
+1. Verify refresh endpoint is correct
+2. Check refresh token is being stored
+3. Ensure refresh token hasn't expired
 
 ```typescript
-// Server components
-import { cookies } from 'next/headers';
-
-const cookieStore = await cookies();
-const auth = createAuthFlow(config, {
-  cookies: () => cookieStore,
-  cookieSetter: (name, value, options) => {
-    cookieStore.set(name, value, options);
-  },
-});
-```
-
-### Problem: Next.js middleware requires context
-
-**Cause**: Middleware needs Next.js environment.
-
-**Solution**: Use the middleware helper:
-
-```typescript
-import { createAuthMiddleware } from '@jmndao/auth-flow/middleware';
-
-export default createAuthMiddleware(authFlow, {
-  redirectUrl: '/login',
-  publicPaths: ['/login', '/register'],
-});
-```
-
-See [Middleware Setup Guide](./middleware-setup.md) for complete instructions.
-
-## Token Management Issues
-
-### Problem: Token refresh failing
-
-**Check these**:
-
-1. Verify refresh endpoint returns correct token fields
-2. Check token field names match your API
-3. Ensure refresh token is being stored
-
-```typescript
-const auth = createAuthFlow({
-  // ... config
-  onTokenRefresh: (tokens) => console.log('New tokens:', tokens),
-  onAuthError: (error) => console.error('Auth error:', error),
-});
-```
-
-### Problem: "accessToken must be a non-empty string"
-
-**Cause**: Trying to set empty or invalid tokens.
-
-**Solution**: Ensure tokens are valid strings:
-
-```typescript
-// Correct
-await auth.setTokens({
-  accessToken: 'valid-token-string',
-  refreshToken: 'valid-refresh-string',
-});
-
-// Incorrect - will throw error
-await auth.setTokens({
-  accessToken: '', // Empty string
-  refreshToken: 'valid-refresh',
-});
-```
-
-### Problem: hasValidTokens() always returns false
-
-**Cause**: Token validation logic issues.
-
-**Solution**: Check token format and expiration:
-
-```typescript
-// For JWT tokens, ensure they have proper structure
+// Check token status
 const tokens = await auth.getTokens();
-console.log('Tokens:', tokens);
-
-// For simple string tokens, ensure they're non-empty
-const hasTokens = await auth.hasValidTokens();
-console.log('Has valid tokens:', hasTokens);
-```
-
-## Network Issues
-
-### Problem: Requests failing in unreliable networks
-
-**Solution**: Use resilient configuration (V2):
-
-```typescript
-import { createResilientAuthFlow } from '@jmndao/auth-flow/v2';
-
-const auth = createResilientAuthFlow('https://api.example.com');
-// Includes retry logic, circuit breaker, and health monitoring
-```
-
-### Problem: Slow API responses
-
-**Solution**: Enable caching and monitoring (V2):
-
-```typescript
-import { createPerformantAuthFlow } from '@jmndao/auth-flow/v2';
-
-const auth = createPerformantAuthFlow('https://api.example.com');
-
-// Monitor performance
-const metrics = auth.getPerformanceMetrics();
-console.log('Average response time:', metrics.averageResponseTime);
-```
-
-## Framework-Specific Issues
-
-### Next.js App Router
-
-**Problem**: Server components can't access cookies properly.
-
-**Solution**: Use Next.js cookie helpers:
-
-```typescript
-// app/profile/page.tsx
-import { cookies } from 'next/headers';
-import { createAuthFlow } from '@jmndao/auth-flow';
-
-export default async function ProfilePage() {
-  const cookieStore = await cookies();
-
-  const auth = createAuthFlow(config, {
-    cookies: () => cookieStore,
-  });
-
-  if (!auth.isAuthenticated()) {
-    redirect('/login');
-  }
-
-  // ... rest of component
+if (tokens) {
+  console.log('Has tokens:', Boolean(tokens));
+  // Manual token validation (for JWT)
+  console.log('Access token expired:', auth.tokenManager?.isTokenExpired(tokens.accessToken));
 }
 ```
 
-**Problem**: Server actions not setting cookies.
+### Storage Issues
 
-**Solution**: Provide cookie setter:
+#### Tokens Not Persisting
 
-```typescript
-// app/actions.ts
-import { cookies } from 'next/headers';
+**Problem:** Tokens are lost on page refresh.
 
-export async function loginAction(formData: FormData) {
-  const cookieStore = await cookies();
+**Solutions:**
 
-  const auth = createAuthFlow(config, {
-    cookies: () => cookieStore,
-    cookieSetter: (name, value, options) => {
-      cookieStore.set(name, value, options);
-    },
-  });
-
-  return await auth.login(credentials);
-}
-```
-
-### React Native
-
-**Problem**: Storage not working.
-
-**Solution**: Use memory storage or custom adapter:
+1. Check storage configuration:
 
 ```typescript
-import { createAuthFlow } from '@jmndao/auth-flow';
-
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  storage: 'memory', // Use memory storage
-  endpoints: { login: '/auth/login', refresh: '/auth/refresh' },
-  tokens: { access: 'accessToken', refresh: 'refreshToken' },
+  storage: 'browser', // Use localStorage instead of memory
 });
 ```
 
-### Express.js
-
-**Problem**: Middleware not working with cookies.
-
-**Solution**: Provide req/res context:
+2. For server-side rendering, use cookies:
 
 ```typescript
-app.use((req, res, next) => {
-  const auth = createAuthFlow(config, { req, res });
-  req.auth = auth;
-  next();
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  storage: 'cookies',
 });
 ```
 
-## TypeScript Issues
+#### Cookie Storage Not Working
 
-### Problem: Type errors with imports
+**Problem:** Cookies are not being set in server environments.
 
-**Solution**: Use correct import paths:
+**Solutions:**
+
+1. Ensure you're in the right context for Next.js:
 
 ```typescript
-// V1 client
-import { createAuthFlow } from '@jmndao/auth-flow';
+// In server actions
+'use server';
+import { createServerActionAuth } from '@jmndao/auth-flow/frameworks/nextjs';
 
-// V2 client
-import { createAuthFlowV2 } from '@jmndao/auth-flow/v2';
-
-// Middleware
-import { createAuthMiddleware } from '@jmndao/auth-flow/middleware';
-
-// Types
-import type { AuthFlowConfig, TokenPair } from '@jmndao/auth-flow';
+const auth = createServerActionAuth({
+  baseURL: 'https://api.example.com',
+});
 ```
 
-### Problem: Context type errors
-
-**Solution**: Use proper typing:
+2. Use diagnostic tools:
 
 ```typescript
-import type { AuthContext } from '@jmndao/auth-flow';
+import { diagnose } from '@jmndao/auth-flow/diagnostics';
 
-const context: AuthContext = {
-  req: request,
-  res: response,
-  cookies: async () => await cookies(),
+const report = await diagnose({
+  baseURL: 'https://api.example.com',
+  storage: 'cookies',
+});
+console.log('Issues:', report.issues);
+console.log('Fixes:', report.fixes);
+```
+
+### Next.js Specific Issues
+
+#### Cookies Not Set in Server Components
+
+**Problem:** Cannot set cookies directly in Next.js server components.
+
+**Solution:** Use server actions instead:
+
+```typescript
+// Wrong: Direct cookie setting in server component
+export default async function Page() {
+  const auth = createAuthFlow({ storage: 'cookies' });
+  // This won't work
+}
+
+// Correct: Use server actions
+('use server');
+async function loginAction(formData: FormData) {
+  const auth = createServerActionAuth({
+    baseURL: 'https://api.example.com',
+  });
+  await auth.login(credentials);
+}
+```
+
+#### Middleware Authentication Issues
+
+**Problem:** Middleware is not properly authenticating requests.
+
+**Solution:**
+
+```typescript
+// middleware.ts
+import { createAuthMiddleware } from '@jmndao/auth-flow/frameworks/nextjs';
+
+export default createAuthMiddleware({
+  publicPaths: ['/login', '/register', '/api/public/*'],
+  loginUrl: '/login',
+});
+
+// Make sure matcher is configured
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
 };
 ```
 
-## Performance Issues
+### Network Issues
 
-### Problem: Too many requests being made
+#### CORS Errors
 
-**Solution**: Enable caching (V2):
+**Problem:** Cross-origin requests are being blocked.
 
-```typescript
-const auth = createAuthFlowV2({
-  baseURL: 'https://api.example.com',
-  caching: {
-    enabled: true,
-    defaultTTL: 300000, // 5 minutes
-  },
-});
+**Solutions:**
 
-// Check cache stats
-const stats = auth.getCacheStats();
-console.log('Cache hit rate:', stats.hitRate);
-```
+1. Configure CORS on your API server
+2. Use a proxy in development
+3. Check your API endpoints
 
-### Problem: Memory leaks
+#### Request Timeouts
 
-**Solution**: Clean up properly:
+**Problem:** Requests are timing out.
 
-```typescript
-// For V2 clients
-useEffect(() => {
-  return () => {
-    auth.destroy(); // Cleanup resources
-  };
-}, []);
-
-// Or manually
-auth.clearPerformanceMetrics();
-auth.clearCache();
-```
-
-## API Response Format Issues
-
-### Problem: Tokens not found in response
-
-**Cause**: API response doesn't match expected format.
-
-**Your API should return**:
-
-```json
-{
-  "accessToken": "jwt-token-here",
-  "refreshToken": "refresh-token-here",
-  "user": { "id": 1, "name": "User" }
-}
-```
-
-**If your API uses different field names**:
+**Solution:**
 
 ```typescript
 const auth = createAuthFlow({
-  // ... other config
-  tokens: {
-    access: 'access_token', // matches your API
-    refresh: 'refresh_token',
+  baseURL: 'https://api.example.com',
+  timeout: 30000, // Increase timeout to 30 seconds
+  retry: {
+    attempts: 5, // Increase retry attempts
+    delay: 2000, // Increase delay between retries
   },
 });
 ```
 
-### Problem: Cookie-based auth not working
+## Diagnostic Tools
 
-**Your API should set cookies**:
+### Built-in Diagnostics
 
-```javascript
-// Server response
-res.setHeader('Set-Cookie', [
-  `accessToken=${accessToken}; Path=/; SameSite=Lax; Secure; Max-Age=3600`,
-  `refreshToken=${refreshToken}; Path=/; SameSite=Lax; Secure; HttpOnly; Max-Age=604800`,
-]);
-```
-
-## Debugging Tools
-
-### Get debug information (V2 only)
+Use the diagnostic tools to identify issues:
 
 ```typescript
-const auth = createAuthFlowV2(config);
+import { diagnose, healthCheck, validateConfig } from '@jmndao/auth-flow/diagnostics';
 
-// Enable debug mode
-auth.enableDebugMode();
+// Full diagnostic
+const report = await diagnose({
+  baseURL: 'https://api.example.com',
+});
 
-// Get comprehensive debug info
-const debugInfo = auth.getDebugInfo();
-console.log({
-  isAuthenticated: debugInfo.authState.isAuthenticated,
-  hasTokens: debugInfo.authState.hasTokens,
-  cacheHitRate: debugInfo.performance.cacheHitRate,
-  healthStatus: debugInfo.health.isHealthy,
-  activeFeatures: debugInfo.features,
+// Quick health check
+const health = await healthCheck({
+  baseURL: 'https://api.example.com',
+});
+
+// Configuration validation
+const issues = validateConfig({
+  baseURL: 'https://api.example.com',
+  storage: 'invalid', // This would be caught
 });
 ```
 
-### Monitor performance
+### Manual Debugging
+
+#### Check Authentication State
 
 ```typescript
-const metrics = auth.getPerformanceMetrics();
-console.log({
-  totalRequests: metrics.totalRequests,
-  successRate: metrics.successRate,
-  averageResponseTime: metrics.averageResponseTime,
-});
-```
+// Check if user is authenticated
+console.log('Authenticated:', auth.isAuthenticated());
 
-### Check cache status
-
-```typescript
-const cacheStats = auth.getCacheStats();
-console.log({
-  cacheSize: cacheStats.size,
-  hitRate: cacheStats.hitRate,
-  maxSize: cacheStats.maxSize,
-});
-```
-
-### Health monitoring
-
-```typescript
-const health = auth.getHealthStatus();
-console.log({
-  isHealthy: health.isHealthy,
-  lastCheckTime: health.lastCheckTime,
-  responseTime: health.responseTime,
-});
-```
-
-## Environment-Specific Debugging
-
-### Enable development logging
-
-```typescript
-// For V2 development
-import { createDevAuthFlow } from '@jmndao/auth-flow/v2';
-
-const auth = createDevAuthFlow('https://api.example.com');
-// Automatically enables detailed logging
-```
-
-### Test cookie functionality
-
-```typescript
-import { diagnoseCookieIssues } from '@jmndao/auth-flow';
-
-// Test cookie setup
-const result = await diagnoseCookieIssues(
-  { email: 'test@example.com', password: 'password' },
-  {
-    baseURL: 'https://api.example.com',
-    tokenSource: 'cookies',
-    storage: { type: 'cookies' },
-    endpoints: { login: '/auth/login', refresh: '/auth/refresh' },
-    tokens: { access: 'accessToken', refresh: 'refreshToken' },
-  }
-);
-
-console.log('Cookie test result:', result);
-```
-
-## Common Error Messages
-
-### "createAuthMiddleware requires Next.js environment"
-
-**Cause**: Trying to use middleware outside Next.js.
-
-**Solution**: Only use middleware in Next.js projects, or check environment:
-
-```typescript
-if (typeof window === 'undefined' && process.env.NEXT_RUNTIME) {
-  // Safe to use Next.js middleware
-  const middleware = createAuthMiddleware(authFlow, config);
-}
-```
-
-### "No refresh token available"
-
-**Cause**: Refresh token missing or expired.
-
-**Solution**: Check token storage and API response:
-
-```typescript
+// Check stored tokens
 const tokens = await auth.getTokens();
-console.log('Current tokens:', tokens);
+console.log('Tokens:', tokens);
 
-if (!tokens?.refreshToken) {
-  // Redirect to login
-  window.location.href = '/login';
+// Check token expiration (for JWT tokens)
+if (tokens?.accessToken) {
+  const isExpired = auth.tokenManager?.isTokenExpired(tokens.accessToken);
+  console.log('Access token expired:', isExpired);
 }
 ```
 
-### "Storage error"
-
-**Cause**: Storage adapter failing.
-
-**Solution**: Handle storage errors gracefully:
+#### Test Storage
 
 ```typescript
+// Test storage functionality
 try {
-  await auth.setTokens(tokens);
+  await auth.setTokens({
+    accessToken: 'test-access',
+    refreshToken: 'test-refresh',
+  });
+
+  const retrieved = await auth.getTokens();
+  console.log('Storage working:', retrieved !== null);
+
+  await auth.clearTokens();
 } catch (error) {
-  console.error('Failed to store tokens:', error);
-  // Fallback to memory storage
-  const fallbackAuth = createAuthFlow({
-    ...config,
-    storage: 'memory',
+  console.error('Storage error:', error);
+}
+```
+
+#### Test API Connectivity
+
+```typescript
+// Test basic connectivity
+try {
+  const response = await fetch('https://api.example.com/health');
+  console.log('API reachable:', response.ok);
+} catch (error) {
+  console.error('API connectivity error:', error);
+}
+```
+
+## Environment-Specific Solutions
+
+### Browser Applications
+
+```typescript
+// Recommended configuration for SPAs
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  storage: 'browser', // Uses localStorage with sessionStorage fallback
+  timeout: 10000,
+  retry: {
+    attempts: 3,
+    delay: 1000,
+  },
+});
+```
+
+### Server-Side Applications
+
+```typescript
+// Recommended configuration for SSR
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  storage: 'cookies', // Persistent across requests
+  timeout: 15000,
+  retry: {
+    attempts: 2,
+    delay: 2000,
+  },
+});
+```
+
+### Development Environment
+
+```typescript
+// Use development preset with verbose logging
+import { createDevAuth } from '@jmndao/auth-flow/presets';
+
+const auth = createDevAuth('https://api.example.com');
+// Automatically includes:
+// - Extended timeouts
+// - More retry attempts
+// - Console logging of token refresh and errors
+```
+
+### Production Environment
+
+```typescript
+// Use production preset with optimized settings
+import { createProductionAuth } from '@jmndao/auth-flow/presets';
+
+const auth = createProductionAuth('https://api.example.com');
+// Automatically includes:
+// - Shorter timeouts
+// - Fewer retry attempts
+// - No console logging
+```
+
+## Getting Help
+
+### Check Configuration
+
+Run the configuration validator to catch common issues:
+
+```typescript
+import { validateConfig } from '@jmndao/auth-flow/diagnostics';
+
+const issues = validateConfig({
+  baseURL: 'https://api.example.com',
+  // ... your configuration
+});
+
+if (issues.length > 0) {
+  console.log('Configuration issues found:');
+  issues.forEach((issue) => {
+    console.log(`${issue.severity}: ${issue.description}`);
+    console.log(`Solution: ${issue.solution}`);
   });
 }
 ```
 
-## Best Practices for Debugging
+### Enable Debug Mode
 
-1. **Start simple**: Use basic configuration first, then add complexity
-2. **Check network tab**: Verify API requests and responses
-3. **Enable logging**: Use debug mode in development
-4. **Test incrementally**: Test authentication, then requests, then advanced features
-5. **Verify API format**: Ensure your API returns expected token format
-
-## Getting Help
-
-If you're still having issues:
-
-1. **Enable debug mode** and check console logs
-2. **Verify API responses** match expected format
-3. **Test with minimal configuration** first
-4. **Check framework-specific setup** in examples
-5. **Open GitHub issue** with configuration and error details
-
-## Environment Configuration Examples
-
-### Development
+For development, you can enable verbose logging:
 
 ```typescript
 const auth = createAuthFlow({
-  baseURL: 'http://localhost:3001',
-  endpoints: { login: '/auth/login', refresh: '/auth/refresh' },
-  tokens: { access: 'accessToken', refresh: 'refreshToken' },
-  // Add debug logging in development
-  onAuthError: (error) => console.error('Auth error:', error),
-  onTokenRefresh: (tokens) => console.log('Tokens refreshed:', !!tokens),
+  baseURL: 'https://api.example.com',
+  onTokenRefresh: (tokens) => {
+    console.log('Tokens refreshed:', new Date().toISOString());
+  },
+  onAuthError: (error) => {
+    console.error('Auth error:', error);
+  },
+  onLogout: () => {
+    console.log('User logged out:', new Date().toISOString());
+  },
 });
 ```
 
-### Production
+### Report Issues
+
+If you encounter issues not covered in this guide:
+
+1. Run the diagnostic tool and include the output
+2. Provide your configuration (without sensitive data)
+3. Include browser/Node.js version information
+4. Describe the expected vs actual behavior
 
 ```typescript
-const auth = createAuthFlow({
-  baseURL: process.env.API_URL,
-  tokenSource: 'cookies',
-  storage: {
-    type: 'cookies',
-    options: {
-      secure: true,
-      sameSite: 'strict',
-      httpOnly: false, // Allow client access if needed
-    },
-  },
-  endpoints: { login: '/auth/login', refresh: '/auth/refresh' },
-  tokens: { access: 'accessToken', refresh: 'refreshToken' },
-  timeout: 10000,
-});
+// Generate debug information
+const debugInfo = await diagnose(yourConfig);
+console.log('Debug info:', JSON.stringify(debugInfo, null, 2));
 ```

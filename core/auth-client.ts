@@ -1,260 +1,47 @@
-import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import type {
-  AuthFlowConfig,
-  ValidatedAuthFlowConfig,
+  AuthConfig,
+  NormalizedConfig,
   TokenPair,
   LoginCredentials,
-  LoginResponse,
-  AuthContext,
-  HttpMethod,
-  AuthMethods,
-  RequestConfig,
+  Response,
+  AuthError,
 } from '../types';
+import { createStorageAdapter } from '../storage';
 import { TokenManager } from './token-manager';
-import { RequestQueue } from './request-queue';
-import { ErrorHandler } from './error-handler';
-import { CookieManager } from './cookie-manager';
-import { validateConfig, validateLoginCredentials } from '../utils';
+import { RequestHandler } from './request-handler';
 
 /**
- * Core authentication client that handles token management, automatic token refresh,
- * and provides HTTP methods with authentication headers
+ * Main authentication client
+ * Orchestrates token management, request handling, and authentication flow
  */
-export class AuthClient implements HttpMethod, AuthMethods {
-  private readonly config: ValidatedAuthFlowConfig;
+export class AuthClient {
+  private readonly config: NormalizedConfig;
   private readonly tokenManager: TokenManager;
-  private readonly requestQueue: RequestQueue;
-  private readonly errorHandler: ErrorHandler;
-  private readonly axiosInstance: AxiosInstance;
-  private readonly context: AuthContext;
-  private readonly cookieManager?: CookieManager;
+  private readonly requestHandler: RequestHandler;
   private refreshPromise: Promise<void> | null = null;
-  private isRefreshing = false;
 
-  constructor(config: AuthFlowConfig, context: AuthContext = {}) {
-    validateConfig(config);
+  constructor(config: AuthConfig) {
+    this.config = this.normalizeConfig(config);
 
-    // Validate required fields
-    if (!config.endpoints?.login) {
-      throw new Error('Login endpoint is required');
-    }
-    if (!config.tokens?.access || !config.tokens?.refresh) {
-      throw new Error('Both access and refresh token field names are required');
-    }
-
-    this.config = {
-      environment: 'auto',
-      tokenSource: 'body',
-      storage: 'auto',
-      timeout: 10000,
-      retry: { attempts: 3, delay: 1000 },
-      ...config,
-      endpoints: config.endpoints,
-      tokens: config.tokens,
-    } as ValidatedAuthFlowConfig;
-
-    this.context = context;
-
-    // Initialize cookie manager if using cookie-based token storage
-    if (this.config.tokenSource === 'cookies') {
-      this.cookieManager = new CookieManager(this.context, {
-        ...(typeof this.config.storage === 'object' ? this.config.storage.options : {}),
-      });
-    }
-
-    this.tokenManager = new TokenManager(
-      this.config.tokens,
-      this.config.storage,
-      this.context,
-      this.config.environment,
-      this.cookieManager
-    );
-
-    this.requestQueue = new RequestQueue();
-    this.errorHandler = new ErrorHandler(
-      this.config.onAuthError,
-      this.config.retry?.attempts,
-      this.config.retry?.delay
-    );
-
-    this.axiosInstance = axios.create({
-      baseURL: this.config.baseURL,
+    const storage = createStorageAdapter(this.config.storage);
+    this.tokenManager = new TokenManager(storage, this.config.tokens);
+    this.requestHandler = new RequestHandler(this.config.baseURL, {
       timeout: this.config.timeout,
+      retry: this.config.retry,
     });
-
-    this.setupInterceptors();
   }
 
   /**
-   * Sets up request and response interceptors for automatic token handling
+   * Authenticate user with credentials
    */
-  private setupInterceptors(): void {
-    // Request interceptor: Add authorization header
-    this.axiosInstance.interceptors.request.use(
-      async (config) => {
-        const accessToken = await this.tokenManager.getAccessToken();
-
-        if (accessToken && config.headers) {
-          config.headers.Authorization = `Bearer ${accessToken}`;
-        }
-
-        return config;
-      },
-      (error) => Promise.reject(error)
+  async login<T = any>(credentials: LoginCredentials): Promise<T> {
+    const response = await this.requestHandler.request<T>(
+      'POST',
+      this.config.endpoints.login,
+      credentials
     );
 
-    // Response interceptor: Handle 401 errors and refresh tokens
-    this.axiosInstance.interceptors.response.use(
-      (response) => response,
-      async (error) => {
-        const originalRequest = error.config;
-
-        if (error.response?.status === 401 && !originalRequest._retry && !this.isRefreshing) {
-          originalRequest._retry = true;
-
-          try {
-            const refreshToken = await this.tokenManager.getRefreshToken();
-
-            if (!refreshToken || this.tokenManager.isTokenExpired(refreshToken)) {
-              await this.clearTokens();
-              throw error;
-            }
-
-            this.isRefreshing = true;
-
-            this.refreshPromise ??= this.performTokenRefresh().finally(() => {
-              this.refreshPromise = null;
-              this.isRefreshing = false;
-            });
-
-            await this.refreshPromise;
-
-            const newAccessToken = await this.tokenManager.getAccessToken();
-            if (newAccessToken && originalRequest.headers) {
-              originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-            }
-
-            return this.axiosInstance.request(originalRequest);
-          } catch {
-            this.isRefreshing = false;
-            await this.clearTokens();
-            throw error;
-          }
-        }
-
-        throw error;
-      }
-    );
-  }
-
-  /**
-   * Performs token refresh using the refresh token
-   */
-  async performTokenRefresh(): Promise<void> {
-    const currentRefreshToken = await this.tokenManager.getRefreshToken();
-
-    if (!currentRefreshToken) {
-      const error = new Error('No refresh token available');
-      // Add Next.js middleware guidance for server environments
-      if (typeof window === 'undefined') {
-        error.message +=
-          '. For Next.js server environments, consider using our middleware for proper token refresh. See: https://github.com/jmndao/auth-flow/blob/main/docs/middleware-setup.md';
-      }
-      throw error;
-    }
-
-    if (this.tokenManager.isTokenExpired(currentRefreshToken)) {
-      const error = new Error('Refresh token is expired');
-      // Add Next.js middleware guidance for server environments
-      if (typeof window === 'undefined') {
-        error.message +=
-          '. For Next.js server environments, consider using our middleware for proper token refresh. See: https://github.com/jmndao/auth-flow/blob/main/docs/middleware-setup.md';
-      }
-      throw error;
-    }
-
-    try {
-      const response = await axios.post(
-        this.getFullUrl(this.config.endpoints.refresh),
-        { refreshToken: currentRefreshToken },
-        {
-          timeout: this.config.timeout,
-          baseURL: this.config.baseURL,
-          withCredentials: true,
-          headers: {
-            Cookie: `${this.config.tokens.refresh}=${currentRefreshToken}`,
-          },
-        }
-      );
-
-      const { accessToken, refreshToken } = this.extractTokensFromRefreshResponse(
-        response,
-        currentRefreshToken
-      );
-
-      const newTokens: TokenPair = {
-        accessToken,
-        refreshToken,
-      };
-
-      await this.tokenManager.setTokens(newTokens);
-
-      if (this.config.onTokenRefresh) {
-        this.config.onTokenRefresh(newTokens);
-      }
-    } catch (error) {
-      // Add Next.js middleware guidance when refresh fails in server environment
-      if (typeof window === 'undefined') {
-        const enhancedError = new Error(
-          `Token refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}. For Next.js server environments, consider using our middleware for proper token refresh. See: https://github.com/jmndao/auth-flow/blob/main/docs/middleware-setup.md`
-        );
-        throw enhancedError;
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Extracts tokens from refresh response, with fallback to current refresh token
-   */
-  private extractTokensFromRefreshResponse(
-    response: AxiosResponse,
-    currentRefreshToken: string
-  ): TokenPair {
-    const data = response.data;
-
-    const accessToken =
-      data[this.config.tokens.access] || data.accessToken || data.access_token || data.token;
-
-    if (!accessToken) {
-      throw new Error(
-        `Access token not found in refresh response. Expected field: ${this.config.tokens.access}`
-      );
-    }
-
-    const refreshToken =
-      data[this.config.tokens.refresh] ||
-      data.refreshToken ||
-      data.refresh_token ||
-      currentRefreshToken;
-
-    return { accessToken, refreshToken };
-  }
-
-  /**
-   * Authenticates user with provided credentials
-   */
-  async login<TUser = any, TCredentials = LoginCredentials>(
-    credentials: TCredentials
-  ): Promise<TUser> {
-    validateLoginCredentials(credentials);
-
-    const response = await axios.post(this.getFullUrl(this.config.endpoints.login), credentials, {
-      timeout: this.config.timeout,
-      baseURL: this.config.baseURL,
-    });
-
-    const tokens = await this.extractTokens(response);
+    const tokens = this.extractTokens(response.data);
     await this.tokenManager.setTokens(tokens);
 
     if (this.config.onTokenRefresh) {
@@ -265,18 +52,18 @@ export class AuthClient implements HttpMethod, AuthMethods {
   }
 
   /**
-   * Logs out user and clears stored tokens
+   * Log out user and clear tokens
    */
   async logout(): Promise<void> {
     if (this.config.endpoints.logout) {
       try {
-        await this.axiosInstance.post(this.config.endpoints.logout);
+        await this.authenticatedRequest('POST', this.config.endpoints.logout);
       } catch {
-        // Continue with token cleanup even if logout endpoint fails
+        // Continue with logout even if endpoint fails
       }
     }
 
-    await this.clearTokens();
+    await this.tokenManager.clearTokens();
 
     if (this.config.onLogout) {
       this.config.onLogout();
@@ -284,159 +71,176 @@ export class AuthClient implements HttpMethod, AuthMethods {
   }
 
   /**
-   * Checks if user is authenticated (has tokens stored)
+   * Check if user is authenticated
    */
   isAuthenticated(): boolean {
-    return this.tokenManager.hasTokensSync();
+    return this.tokenManager.hasTokens();
   }
 
   /**
-   * Checks if stored tokens are valid and not expired
+   * Get stored tokens
    */
-  async hasValidTokens(): Promise<boolean> {
-    const accessToken = await this.tokenManager.getAccessToken();
-    const refreshToken = await this.tokenManager.getRefreshToken();
-
-    if (!refreshToken) {
-      return false;
-    }
-
-    if (this.tokenManager.isTokenExpired(refreshToken)) {
-      await this.clearTokens();
-      return false;
-    }
-
-    if (!accessToken) {
-      if (typeof window === 'undefined') {
-        return false;
-      }
-
-      try {
-        await this.performTokenRefresh();
-        return true;
-      } catch (error) {
-        console.error('Error during token validation:', error);
-        await this.clearTokens();
-        return false;
-      }
-    }
-
-    if (accessToken.includes('.') && this.tokenManager.isTokenExpired(accessToken)) {
-      if (typeof window === 'undefined') {
-        return false;
-      }
-
-      try {
-        await this.performTokenRefresh();
-        return true;
-      } catch {
-        console.error('Error during token validation');
-        await this.clearTokens();
-        return false;
-      }
-    }
-
-    return true;
-  }
-
   async getTokens(): Promise<TokenPair | null> {
     return this.tokenManager.getTokens();
   }
 
-  async getAccessToken(): Promise<string | null> {
-    return this.tokenManager.getAccessToken();
-  }
-
-  async getRefreshToken(): Promise<string | null> {
-    return this.tokenManager.getRefreshToken();
-  }
-
+  /**
+   * Set tokens manually
+   */
   async setTokens(tokens: TokenPair): Promise<void> {
     await this.tokenManager.setTokens(tokens);
   }
 
+  /**
+   * Clear stored tokens
+   */
   async clearTokens(): Promise<void> {
     await this.tokenManager.clearTokens();
-    this.requestQueue.clearQueue();
-  }
-
-  // HTTP Methods
-  async get<T = any>(url: string, config?: RequestConfig): Promise<LoginResponse<T>> {
-    return this.request<T>('get', url, undefined, config);
-  }
-
-  async post<T = any>(url: string, data?: any, config?: RequestConfig): Promise<LoginResponse<T>> {
-    return this.request<T>('post', url, data, config);
-  }
-
-  async put<T = any>(url: string, data?: any, config?: RequestConfig): Promise<LoginResponse<T>> {
-    return this.request<T>('put', url, data, config);
-  }
-
-  async patch<T = any>(url: string, data?: any, config?: RequestConfig): Promise<LoginResponse<T>> {
-    return this.request<T>('patch', url, data, config);
-  }
-
-  async delete<T = any>(url: string, config?: RequestConfig): Promise<LoginResponse<T>> {
-    return this.request<T>('delete', url, undefined, config);
-  }
-
-  async head<T = any>(url: string, config?: RequestConfig): Promise<LoginResponse<T>> {
-    return this.request<T>('head', url, undefined, config);
-  }
-
-  async options<T = any>(url: string, config?: RequestConfig): Promise<LoginResponse<T>> {
-    return this.request<T>('options', url, undefined, config);
   }
 
   /**
-   * Makes HTTP request with error handling and retry logic
+   * HTTP GET with authentication
    */
-  private async request<T = any>(
+  async get<T = any>(url: string, config?: any): Promise<Response<T>> {
+    return this.authenticatedRequest<T>('GET', url, undefined, config);
+  }
+
+  /**
+   * HTTP POST with authentication
+   */
+  async post<T = any>(url: string, data?: any, config?: any): Promise<Response<T>> {
+    return this.authenticatedRequest<T>('POST', url, data, config);
+  }
+
+  /**
+   * HTTP PUT with authentication
+   */
+  async put<T = any>(url: string, data?: any, config?: any): Promise<Response<T>> {
+    return this.authenticatedRequest<T>('PUT', url, data, config);
+  }
+
+  /**
+   * HTTP PATCH with authentication
+   */
+  async patch<T = any>(url: string, data?: any, config?: any): Promise<Response<T>> {
+    return this.authenticatedRequest<T>('PATCH', url, data, config);
+  }
+
+  /**
+   * HTTP DELETE with authentication
+   */
+  async delete<T = any>(url: string, config?: any): Promise<Response<T>> {
+    return this.authenticatedRequest<T>('DELETE', url, undefined, config);
+  }
+
+  /**
+   * Make authenticated request with automatic token refresh
+   */
+  private async authenticatedRequest<T>(
     method: string,
     url: string,
     data?: any,
-    config?: RequestConfig
-  ): Promise<LoginResponse<T>> {
-    return this.errorHandler.executeWithRetry(async () => {
-      const response: AxiosResponse<T> = await this.axiosInstance.request({
-        method,
-        url,
-        data,
-        ...config,
-      });
-
-      return {
-        data: response.data,
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers as Record<string, string>,
+    config: any = {}
+  ): Promise<Response<T>> {
+    const accessToken = await this.tokenManager.getAccessToken();
+    if (accessToken) {
+      config.headers = {
+        ...config.headers,
+        Authorization: `Bearer ${accessToken}`,
       };
-    });
-  }
+    }
 
-  /**
-   * Extracts tokens from login response based on configured token source
-   */
-  private async extractTokens(response: AxiosResponse): Promise<TokenPair> {
-    if (this.config.tokenSource === 'cookies') {
-      return this.extractTokensFromCookies(response);
-    } else {
-      return this.extractTokensFromBody(response);
+    try {
+      return await this.requestHandler.request<T>(method, url, data, config);
+    } catch (error: any) {
+      if (error.status === 401 && !error.isRetry) {
+        return this.handleAuthError<T>(method, url, data, config);
+      }
+      throw error;
     }
   }
 
   /**
-   * Extracts tokens from response body
+   * Handle 401 errors with token refresh
    */
-  private async extractTokensFromBody(response: AxiosResponse): Promise<TokenPair> {
-    const data = response.data;
+  private async handleAuthError<T>(
+    method: string,
+    url: string,
+    data?: any,
+    config: any = {}
+  ): Promise<Response<T>> {
+    if (this.requestHandler.isCurrentlyRefreshing()) {
+      return this.requestHandler.queueRequest<T>(method, url, data, config);
+    }
+
+    this.refreshPromise ??= this.refreshTokens();
+
+    try {
+      await this.refreshPromise;
+
+      const newAccessToken = await this.tokenManager.getAccessToken();
+      if (newAccessToken) {
+        config.headers = {
+          ...config.headers,
+          Authorization: `Bearer ${newAccessToken}`,
+        };
+        config.isRetry = true;
+        return this.requestHandler.request<T>(method, url, data, config);
+      }
+    } catch (refreshError) {
+      await this.tokenManager.clearTokens();
+      if (this.config.onAuthError) {
+        this.config.onAuthError(this.normalizeError(refreshError));
+      }
+      throw refreshError;
+    } finally {
+      this.refreshPromise = null;
+    }
+
+    throw new Error('Token refresh failed');
+  }
+
+  /**
+   * Refresh access token using refresh token
+   */
+  private async refreshTokens(): Promise<void> {
+    this.requestHandler.setRefreshing(true);
+
+    try {
+      const refreshToken = await this.tokenManager.getRefreshToken();
+      if (!refreshToken) {
+        throw new Error('No refresh token available');
+      }
+
+      if (this.tokenManager.isTokenExpired(refreshToken)) {
+        throw new Error('Refresh token is expired');
+      }
+
+      const response = await this.requestHandler.request('POST', this.config.endpoints.refresh, {
+        refreshToken,
+      });
+
+      const tokens = this.extractTokens(response.data);
+      await this.tokenManager.setTokens(tokens);
+
+      if (this.config.onTokenRefresh) {
+        this.config.onTokenRefresh(tokens);
+      }
+    } finally {
+      this.requestHandler.setRefreshing(false);
+    }
+  }
+
+  /**
+   * Extract tokens from API response
+   */
+  private extractTokens(data: any): TokenPair {
     const accessToken = data[this.config.tokens.access];
     const refreshToken = data[this.config.tokens.refresh];
 
     if (!accessToken || !refreshToken) {
       throw new Error(
-        `Tokens not found in response. Expected: ${this.config.tokens.access}, ${this.config.tokens.refresh}`
+        `Tokens not found in response. Expected fields: ${this.config.tokens.access}, ${this.config.tokens.refresh}`
       );
     }
 
@@ -444,74 +248,45 @@ export class AuthClient implements HttpMethod, AuthMethods {
   }
 
   /**
-   * Extracts tokens from cookies, with fallback to body
+   * Normalize error to AuthError format
    */
-  private async extractTokensFromCookies(response: AxiosResponse): Promise<TokenPair> {
-    const bodyTokens = this.tryExtractFromBody(response);
-    if (bodyTokens) {
-      return bodyTokens;
+  private normalizeError(error: unknown): AuthError {
+    if (error && typeof error === 'object' && 'status' in error) {
+      return error as AuthError;
     }
 
-    // Wait for cookies to be set
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Retry getting tokens from cookies
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const tokens = await this.tokenManager.getTokens();
-      if (tokens?.accessToken && tokens?.refreshToken) {
-        return tokens;
-      }
-
-      if (attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-    }
-
-    throw new Error(
-      `Tokens not found in cookies after login. Expected: ${this.config.tokens.access}, ${this.config.tokens.refresh}`
-    );
+    return {
+      status: 500,
+      message: error instanceof Error ? error.message : 'Unknown error occurred',
+      code: 'UNKNOWN_ERROR',
+      originalError: error,
+    };
   }
 
   /**
-   * Attempts to extract tokens from response body (fallback for cookie mode)
+   * Normalize configuration with defaults
    */
-  private tryExtractFromBody(response: AxiosResponse): TokenPair | null {
-    try {
-      const data = response.data;
-
-      const accessToken =
-        data[this.config.tokens.access] ||
-        data.data?.[this.config.tokens.access] ||
-        data.token ||
-        data.accessToken;
-
-      const refreshToken =
-        data[this.config.tokens.refresh] ||
-        data.data?.[this.config.tokens.refresh] ||
-        data.refreshToken;
-
-      if (accessToken && refreshToken) {
-        return { accessToken, refreshToken };
-      }
-    } catch {
-      // Ignore extraction errors from body
-    }
-
-    return null;
-  }
-
-  /**
-   * Constructs full URL from endpoint
-   */
-  private getFullUrl(endpoint: string): string {
-    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
-      return endpoint;
-    }
-
-    if (this.config.baseURL) {
-      return `${this.config.baseURL.replace(/\/$/, '')}/${endpoint.replace(/^\//, '')}`;
-    }
-
-    return endpoint;
+  private normalizeConfig(config: AuthConfig): NormalizedConfig {
+    return {
+      baseURL: config.baseURL,
+      endpoints: {
+        login: config.endpoints?.login ?? '/auth/login',
+        refresh: config.endpoints?.refresh ?? '/auth/refresh',
+        logout: config.endpoints?.logout ?? '/auth/logout',
+      },
+      tokens: {
+        access: config.tokens?.access ?? 'accessToken',
+        refresh: config.tokens?.refresh ?? 'refreshToken',
+      },
+      storage: config.storage ?? 'auto',
+      timeout: config.timeout ?? 10000,
+      retry: {
+        attempts: config.retry?.attempts ?? 3,
+        delay: config.retry?.delay ?? 1000,
+      },
+      onTokenRefresh: config.onTokenRefresh,
+      onAuthError: config.onAuthError,
+      onLogout: config.onLogout,
+    };
   }
 }

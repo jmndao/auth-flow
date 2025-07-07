@@ -1,61 +1,35 @@
-// Jest setup file for AuthFlow tests
+/**
+ * Test setup configuration
+ */
 
-// Mock localStorage for testing
-const localStorageMock = (() => {
-  let store: { [key: string]: string } = {};
+// Mock fetch globally
+global.fetch = jest.fn();
 
-  return {
-    getItem: jest.fn((key: string) => store[key] || null),
-    setItem: jest.fn((key: string, value: string) => {
-      store[key] = value;
-    }),
-    removeItem: jest.fn((key: string) => {
-      delete store[key];
-    }),
-    clear: jest.fn(() => {
-      store = {};
-    }),
-    length: 0,
-    key: jest.fn(),
-    __storage: store,
-  };
-})();
+// Mock localStorage
+const localStorageMock = {
+  getItem: jest.fn(),
+  setItem: jest.fn(),
+  removeItem: jest.fn(),
+  clear: jest.fn(),
+};
 
-Object.defineProperty(global, 'localStorage', {
+Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
-  writable: true,
 });
 
-// Mock document.cookie for testing
-Object.defineProperty(document, 'cookie', {
-  writable: true,
-  value: '',
-  configurable: true,
-});
+// Mock console methods to reduce noise in tests
+global.console = {
+  ...console,
+  warn: jest.fn(),
+  error: jest.fn(),
+};
 
-// Global test utilities
-(global as any).createMockTokens = () => ({
-  accessToken: 'mock-access-token',
-  refreshToken: 'mock-refresh-token',
-});
-
-(global as any).createMockConfig = () => ({
-  endpoints: {
-    login: '/auth/login',
-    refresh: '/auth/refresh',
-  },
-  tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
-});
-
-// Clean up after each test
-afterEach(() => {
+// Reset all mocks before each test
+beforeEach(() => {
   jest.clearAllMocks();
-  localStorageMock.clear();
-  localStorageMock.__storage = {};
-  if (typeof document !== 'undefined') {
-    document.cookie = '';
-  }
+  (fetch as jest.Mock).mockClear();
+  localStorageMock.getItem.mockClear();
+  localStorageMock.setItem.mockClear();
+  localStorageMock.removeItem.mockClear();
+  localStorageMock.clear.mockClear();
 });

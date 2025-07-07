@@ -1,106 +1,42 @@
 # API Reference
 
-## Factory Functions
+## Core API
 
-### createAuthFlow(config, context?)
+### createAuthFlow(config)
 
-Creates a standard AuthFlow client.
+Creates a new AuthFlow instance.
 
 **Parameters:**
 
-- `config` (AuthFlowConfig) - Configuration object
-- `context` (AuthContext, optional) - Server-side context
+- `config` (string | AuthConfig): API base URL or configuration object
 
-**Returns:** AuthClient
+**Returns:** AuthClient instance
 
 ```typescript
+// Simple usage
+const auth = createAuthFlow('https://api.example.com');
+
+// With configuration
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  endpoints: {
-    login: '/auth/login',
-    refresh: '/auth/refresh',
-  },
-  tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
+  storage: 'cookies',
+  timeout: 10000,
 });
 ```
 
-### createAuthFlowV2(config, context?)
-
-Creates a v2.0 AuthFlow client with enhanced features.
-
-**Parameters:**
-
-- `config` (string | AuthFlowV2Config) - Base URL or configuration object
-- `context` (AuthContext, optional) - Server-side context
-
-**Returns:** AuthFlowV2Client
-
-```typescript
-const auth = createAuthFlowV2({
-  baseURL: 'https://api.example.com',
-  caching: { enabled: true },
-  monitoring: { enabled: true },
-});
-```
-
-### Preset Factory Functions
-
-#### createProductionAuthFlow(baseURL, config?)
-
-Creates a production-ready AuthFlow instance.
-
-```typescript
-const auth = createProductionAuthFlow('https://api.example.com');
-```
-
-#### createPerformantAuthFlow(baseURL)
-
-Creates a high-performance AuthFlow instance with caching.
-
-```typescript
-const auth = createPerformantAuthFlow('https://api.example.com');
-```
-
-#### createSecureAuthFlow(baseURL, encryptionKey, signingKey)
-
-Creates a security-focused AuthFlow instance.
-
-```typescript
-const auth = createSecureAuthFlow('https://api.example.com', 'encryption-key', 'signing-key');
-```
-
-#### createResilientAuthFlow(baseURL)
-
-Creates a resilient AuthFlow instance for unreliable networks.
-
-```typescript
-const auth = createResilientAuthFlow('https://api.example.com');
-```
-
-#### createDevAuthFlow(baseURL)
-
-Creates a development-friendly AuthFlow instance.
-
-```typescript
-const auth = createDevAuthFlow('https://api.example.com');
-```
-
-## AuthClient Interface
+## AuthClient
 
 ### Authentication Methods
 
-#### login<TUser, TCredentials>(credentials)
+#### login(credentials)
 
-Authenticates a user with the provided credentials.
+Authenticates user with provided credentials.
 
 **Parameters:**
 
-- `credentials` (TCredentials) - Login credentials
+- `credentials` (object): Login credentials
 
-**Returns:** Promise<TUser>
+**Returns:** Promise<User>
 
 ```typescript
 const user = await auth.login({
@@ -111,7 +47,7 @@ const user = await auth.login({
 
 #### logout()
 
-Logs out the current user and clears tokens.
+Logs out user and clears stored tokens.
 
 **Returns:** Promise<void>
 
@@ -121,54 +57,97 @@ await auth.logout();
 
 #### isAuthenticated()
 
-Checks if the user is currently authenticated (synchronous).
+Checks if user is currently authenticated.
 
 **Returns:** boolean
 
 ```typescript
-const isAuth = auth.isAuthenticated();
+if (auth.isAuthenticated()) {
+  // User is logged in
+}
 ```
 
-#### hasValidTokens()
+### HTTP Methods
 
-Checks if valid tokens are available (asynchronous).
+All HTTP methods automatically include authentication headers.
 
-**Returns:** Promise<boolean>
+#### get(url, config?)
+
+Makes authenticated GET request.
+
+**Parameters:**
+
+- `url` (string): Request URL
+- `config` (object, optional): Request configuration
+
+**Returns:** Promise<Response>
 
 ```typescript
-const hasTokens = await auth.hasValidTokens();
+const users = await auth.get('/users');
+const user = await auth.get('/users/123');
 ```
+
+#### post(url, data?, config?)
+
+Makes authenticated POST request.
+
+**Parameters:**
+
+- `url` (string): Request URL
+- `data` (any, optional): Request body data
+- `config` (object, optional): Request configuration
+
+**Returns:** Promise<Response>
+
+```typescript
+const newUser = await auth.post('/users', {
+  name: 'John Doe',
+  email: 'john@example.com',
+});
+```
+
+#### put(url, data?, config?)
+
+Makes authenticated PUT request.
+
+#### patch(url, data?, config?)
+
+Makes authenticated PATCH request.
+
+#### delete(url, config?)
+
+Makes authenticated DELETE request.
 
 ### Token Management
 
 #### getTokens()
 
-Retrieves the current token pair.
+Retrieves stored token pair.
 
 **Returns:** Promise<TokenPair | null>
 
 ```typescript
 const tokens = await auth.getTokens();
 if (tokens) {
-  console.log(tokens.accessToken);
-  console.log(tokens.refreshToken);
+  console.log('Access token:', tokens.accessToken);
+  console.log('Refresh token:', tokens.refreshToken);
 }
 ```
 
 #### setTokens(tokens)
 
-Sets the token pair.
+Manually sets token pair.
 
 **Parameters:**
 
-- `tokens` (TokenPair) - Access and refresh tokens
+- `tokens` (TokenPair): Token pair to store
 
 **Returns:** Promise<void>
 
 ```typescript
 await auth.setTokens({
-  accessToken: 'new-access-token',
-  refreshToken: 'new-refresh-token',
+  accessToken: 'your-access-token',
+  refreshToken: 'your-refresh-token',
 });
 ```
 
@@ -182,299 +161,156 @@ Clears all stored tokens.
 await auth.clearTokens();
 ```
 
-### HTTP Methods
+## Configuration
 
-#### get<T>(url, config?)
-
-Makes a GET request.
-
-**Parameters:**
-
-- `url` (string) - Request URL
-- `config` (RequestConfig, optional) - Request configuration
-
-**Returns:** Promise<LoginResponse<T>>
+### AuthConfig
 
 ```typescript
-const users = await auth.get('/api/users');
-```
-
-#### post<T>(url, data?, config?)
-
-Makes a POST request.
-
-**Parameters:**
-
-- `url` (string) - Request URL
-- `data` (any, optional) - Request body
-- `config` (RequestConfig, optional) - Request configuration
-
-**Returns:** Promise<LoginResponse<T>>
-
-```typescript
-const newUser = await auth.post('/api/users', {
-  name: 'John Doe',
-  email: 'john@example.com',
-});
-```
-
-#### put<T>(url, data?, config?)
-
-Makes a PUT request.
-
-**Returns:** Promise<LoginResponse<T>>
-
-#### patch<T>(url, data?, config?)
-
-Makes a PATCH request.
-
-**Returns:** Promise<LoginResponse<T>>
-
-#### delete<T>(url, config?)
-
-Makes a DELETE request.
-
-**Returns:** Promise<LoginResponse<T>>
-
-#### head<T>(url, config?)
-
-Makes a HEAD request.
-
-**Returns:** Promise<LoginResponse<T>>
-
-#### options<T>(url, config?)
-
-Makes an OPTIONS request.
-
-**Returns:** Promise<LoginResponse<T>>
-
-## AuthFlowV2Client Interface
-
-### Additional V2 Features
-
-#### getPerformanceMetrics()
-
-Returns aggregated performance metrics.
-
-**Returns:** AggregatedMetrics
-
-```typescript
-const metrics = auth.getPerformanceMetrics();
-console.log({
-  totalRequests: metrics.totalRequests,
-  averageResponseTime: metrics.averageResponseTime,
-  successRate: metrics.successRate,
-});
-```
-
-#### clearPerformanceMetrics()
-
-Clears all performance metrics.
-
-```typescript
-auth.clearPerformanceMetrics();
-```
-
-#### getCacheStats()
-
-Returns cache statistics.
-
-**Returns:** CacheStats
-
-```typescript
-const stats = auth.getCacheStats();
-console.log({
-  size: stats.size,
-  hitRate: stats.hitRate,
-});
-```
-
-#### clearCache(pattern?)
-
-Clears cache entries, optionally by pattern.
-
-**Parameters:**
-
-- `pattern` (string, optional) - URL pattern to match
-
-```typescript
-// Clear all cache
-auth.clearCache();
-
-// Clear specific pattern
-auth.clearCache('/api/users/*');
-```
-
-#### getHealthStatus()
-
-Returns current health status.
-
-```typescript
-const health = auth.getHealthStatus();
-```
-
-#### checkHealth()
-
-Performs an immediate health check.
-
-**Returns:** Promise<HealthStatus>
-
-```typescript
-const health = await auth.checkHealth();
-```
-
-#### getCircuitBreakerStats()
-
-Returns circuit breaker statistics.
-
-```typescript
-const stats = auth.getCircuitBreakerStats();
-```
-
-#### resetCircuitBreaker()
-
-Manually resets the circuit breaker.
-
-```typescript
-auth.resetCircuitBreaker();
-```
-
-#### enableDebugMode() / disableDebugMode()
-
-Controls debug mode.
-
-```typescript
-auth.enableDebugMode();
-auth.disableDebugMode();
-```
-
-#### getDebugInfo()
-
-Returns comprehensive debug information.
-
-**Returns:** DebugInfo
-
-```typescript
-const debug = auth.getDebugInfo();
-```
-
-#### destroy()
-
-Cleans up resources and stops monitoring.
-
-```typescript
-auth.destroy();
-```
-
-## Middleware Functions
-
-### createAuthMiddleware(authFlow, config?)
-
-Creates authentication middleware for Next.js.
-
-**Parameters:**
-
-- `authFlow` (AuthFlowInstance) - AuthFlow client instance
-- `config` (MiddlewareConfig, optional) - Middleware configuration
-
-**Returns:** Next.js middleware function
-
-```typescript
-import { createAuthMiddleware } from '@jmndao/auth-flow/middleware';
-
-export default createAuthMiddleware(authFlow, {
-  redirectUrl: '/login',
-  publicPaths: ['/login', '/register'],
-  protectedPaths: ['/dashboard/*'],
-});
-```
-
-### createServerAuthChecker(authFlow)
-
-Creates server-side authentication checker.
-
-**Parameters:**
-
-- `authFlow` (AuthFlowInstance) - AuthFlow client instance
-
-**Returns:** Promise<Function>
-
-```typescript
-const checkAuth = await createServerAuthChecker(authFlow);
-const result = await checkAuth();
-
-if (result.isAuthenticated) {
-  console.log('User:', result.user);
-}
-```
-
-### createServerActionWrapper(authFlow)
-
-Creates wrapper for server actions with authentication.
-
-**Parameters:**
-
-- `authFlow` (AuthFlowInstance) - AuthFlow client instance
-
-**Returns:** Function wrapper
-
-```typescript
-const withAuth = createServerActionWrapper(authFlow);
-
-export const updateProfile = withAuth(async (formData) => {
-  // Protected server action
-});
-```
-
-## Configuration Interfaces
-
-### AuthFlowConfig
-
-```typescript
-interface AuthFlowConfig {
-  baseURL?: string;
-  endpoints: {
-    login: string;
-    refresh: string;
-    logout?: string;
+interface AuthConfig {
+  baseURL: string;
+  endpoints?: {
+    login?: string; // Default: '/auth/login'
+    refresh?: string; // Default: '/auth/refresh'
+    logout?: string; // Default: '/auth/logout'
   };
-  tokens: {
-    access: string;
-    refresh: string;
+  tokens?: {
+    access?: string; // Default: 'accessToken'
+    refresh?: string; // Default: 'refreshToken'
   };
-  tokenSource?: 'body' | 'cookies';
-  storage?: StorageType | StorageConfig;
-  timeout?: number;
-  retry?: RetryConfig;
+  storage?: 'auto' | 'memory' | 'browser' | 'cookies'; // Default: 'auto'
+  timeout?: number; // Default: 10000
+  retry?: {
+    attempts?: number; // Default: 3
+    delay?: number; // Default: 1000
+  };
   onTokenRefresh?: (tokens: TokenPair) => void;
   onAuthError?: (error: AuthError) => void;
   onLogout?: () => void;
 }
 ```
 
-### AuthFlowV2Config
+### Storage Options
+
+- **auto**: Automatically selects best storage for environment
+- **memory**: In-memory storage (session-based)
+- **browser**: localStorage with sessionStorage fallback
+- **cookies**: Universal cookie storage (works in server/client)
+
+## Presets
+
+Quick configurations for common scenarios.
+
+### createSimpleAuth(baseURL)
+
+Browser-optimized configuration with localStorage.
 
 ```typescript
-interface AuthFlowV2Config extends AuthFlowConfig {
-  caching?: Partial<CacheConfig>;
-  monitoring?: Partial<PerformanceConfig>;
-  security?: Partial<SecurityConfig>;
-  circuitBreaker?: Partial<CircuitBreakerConfig>;
-  health?: Partial<HealthConfig>;
-  debugMode?: boolean;
-  analytics?: AnalyticsConfig;
+import { createSimpleAuth } from '@jmndao/auth-flow/presets';
+const auth = createSimpleAuth('https://api.example.com');
+```
+
+### createServerAuth(baseURL)
+
+Server-side configuration with cookies.
+
+```typescript
+import { createServerAuth } from '@jmndao/auth-flow/presets';
+const auth = createServerAuth('https://api.example.com');
+```
+
+### createNextJSAuth(baseURL)
+
+Next.js optimized configuration.
+
+```typescript
+import { createNextJSAuth } from '@jmndao/auth-flow/presets';
+const auth = createNextJSAuth('https://api.example.com');
+```
+
+### createDevAuth(baseURL)
+
+Development configuration with verbose logging.
+
+```typescript
+import { createDevAuth } from '@jmndao/auth-flow/presets';
+const auth = createDevAuth('https://api.example.com');
+```
+
+### createProductionAuth(baseURL)
+
+Production-optimized configuration.
+
+```typescript
+import { createProductionAuth } from '@jmndao/auth-flow/presets';
+const auth = createProductionAuth('https://api.example.com');
+```
+
+## Diagnostics
+
+### diagnose(config)
+
+Runs comprehensive diagnostic check.
+
+**Parameters:**
+
+- `config` (AuthConfig): Configuration to diagnose
+
+**Returns:** Promise<DiagnosticResult>
+
+```typescript
+import { diagnose } from '@jmndao/auth-flow/diagnostics';
+
+const report = await diagnose({
+  baseURL: 'https://api.example.com',
+});
+
+console.log('Issues found:', report.issues);
+console.log('Suggested fixes:', report.fixes);
+```
+
+### healthCheck(config)
+
+Performs health check on configuration.
+
+**Parameters:**
+
+- `config` (AuthConfig): Configuration to check
+
+**Returns:** Promise<HealthReport>
+
+```typescript
+import { healthCheck } from '@jmndao/auth-flow/diagnostics';
+
+const health = await healthCheck({
+  baseURL: 'https://api.example.com',
+});
+
+if (!health.healthy) {
+  console.log('Health issues:', health.issues);
+  console.log('Recommendations:', health.recommendations);
 }
 ```
 
-### MiddlewareConfig
+### validateConfig(config)
+
+Validates configuration without runtime checks.
+
+**Parameters:**
+
+- `config` (AuthConfig): Configuration to validate
+
+**Returns:** HealthIssue[]
 
 ```typescript
-interface MiddlewareConfig {
-  redirectUrl?: string;
-  publicPaths?: string[];
-  protectedPaths?: string[];
-  skipValidation?: (path: string) => boolean;
-  includeCallbackUrl?: boolean;
+import { validateConfig } from '@jmndao/auth-flow/diagnostics';
+
+const issues = validateConfig({
+  baseURL: 'https://api.example.com',
+  storage: 'invalid', // This would be caught
+});
+
+if (issues.length > 0) {
+  console.log('Configuration issues:', issues);
 }
 ```
 
@@ -491,44 +327,26 @@ interface AuthError {
 }
 ```
 
-Common error codes:
+### Common Error Codes
 
-- `NETWORK_ERROR` - Network connectivity issues
-- `TOKEN_EXPIRED` - Access token has expired
-- `REFRESH_TOKEN_EXPIRED` - Refresh token has expired
-- `INVALID_CREDENTIALS` - Login credentials are invalid
-- `UNAUTHORIZED` - Request lacks valid authentication
+- **NETWORK_ERROR**: Network connectivity issues
+- **TOKEN_EXPIRED**: Access token has expired
+- **REFRESH_TOKEN_EXPIRED**: Refresh token has expired
+- **INVALID_CREDENTIALS**: Login credentials are invalid
+- **STORAGE_ERROR**: Storage operation failed
 
-## Type Definitions
-
-### TokenPair
+### Error Handling Example
 
 ```typescript
-interface TokenPair {
-  accessToken: string;
-  refreshToken: string;
-}
-```
-
-### AuthContext
-
-```typescript
-interface AuthContext {
-  req?: any;
-  res?: any;
-  cookies?: () => Promise<any> | any;
-  headers?: () => Promise<any> | any;
-  cookieSetter?: (name: string, value: string, options?: any) => Promise<void> | void;
-}
-```
-
-### LoginResponse
-
-```typescript
-interface LoginResponse<T = any> {
-  data: T;
-  status: number;
-  statusText: string;
-  headers: Record<string, string>;
+try {
+  await auth.login(credentials);
+} catch (error) {
+  if (error.status === 401) {
+    console.log('Invalid credentials');
+  } else if (error.code === 'NETWORK_ERROR') {
+    console.log('Network issue, please try again');
+  } else {
+    console.log('Login failed:', error.message);
+  }
 }
 ```

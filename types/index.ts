@@ -1,32 +1,9 @@
-// Export all types from submodules
-export type {
-  Environment,
-  TokenSource,
-  StorageType,
-  TokenConfig,
-  EndpointsConfig,
-  StorageConfig,
-  RetryConfig,
-  AuthFlowConfig,
-  ValidatedAuthFlowConfig,
-  TokenPair,
-  AuthError,
-  RequestConfig,
-  AuthContext,
-} from './config';
+/**
+ * Type definitions index - exports all types
+ */
 
-export type {
-  LoginCredentials,
-  LoginResponse,
-  RefreshTokenResponse,
-  HttpMethod,
-  AuthMethods,
-  QueuedRequest,
-} from './auth';
-
-export type {
-  StorageAdapter,
-  StorageOptions,
-  CookieStorageOptions,
-  StorageAdapterContext,
-} from './storage';
+export * from './auth';
+export * from './config';
+export * from './http';
+export * from './storage';
+export * from './diagnostics';

@@ -1,219 +1,206 @@
 # AuthFlow
 
-Universal authentication client for JavaScript applications with production-ready features.
-
-[![npm version](https://img.shields.io/npm/v/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
-[![downloads](https://img.shields.io/npm/dm/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
-[![license](https://img.shields.io/npm/l/@jmndao/auth-flow)](https://github.com/jmndao/auth-flow/blob/main/LICENSE)
+Universal authentication client with automatic token refresh and framework integrations.
 
 ## Features
 
-- **Framework Agnostic** - Works with Next.js, React, Vue, Express, and more
-- **Multiple Storage Options** - localStorage, cookies, memory, or custom adapters
-- **Automatic Token Refresh** - Handles expired tokens seamlessly
-- **Production Ready** - Caching, monitoring, retry logic, and circuit breakers
-- **TypeScript First** - Complete type safety and intellisense
-- **Zero Dependencies** - Lightweight core with optional features# AuthFlow
-
-Universal authentication client for JavaScript applications with production-ready features.
-
-[![npm version](https://img.shields.io/npm/v/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
-[![downloads](https://img.shields.io/npm/dm/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
-[![license](https://img.shields.io/npm/l/@jmndao/auth-flow)](https://github.com/jmndao/auth-flow/blob/main/LICENSE)
-
-## Features
-
-- **Framework Agnostic** - Works with Next.js, React, Vue, Express, and more
-- **Multiple Storage Options** - localStorage, cookies, memory, or custom adapters
-- **Automatic Token Refresh** - Handles expired tokens seamlessly
-- **Production Ready** - Caching, monitoring, retry logic, and circuit breakers
-- **TypeScript First** - Complete type safety and intellisense
-- **Zero Dependencies** - Lightweight core with optional features
-
-## Installation
-
-```bash
-npm install @jmndao/auth-flow
-```
+- Automatic token refresh with queue management
+- Universal storage (localStorage, cookies, memory)
+- Framework integrations (React, Vue, Next.js)
+- Built-in diagnostics and troubleshooting
+- Works in browser, server, and mobile environments
+- TypeScript first with full type safety
 
 ## Quick Start
+
+```bash
+npm install @jmndao/auth-flow@3.0.0
+```
+
+### Basic Usage
+
+```typescript
+import { createAuthFlow } from '@jmndao/auth-flow';
+
+const auth = createAuthFlow('https://api.example.com');
+
+// Login
+await auth.login({ email: 'user@example.com', password: 'password' });
+
+// Make authenticated requests
+const profile = await auth.get('/user/profile');
+const posts = await auth.get('/posts');
+
+// Logout
+await auth.logout();
+```
+
+### Configuration
 
 ```typescript
 import { createAuthFlow } from '@jmndao/auth-flow';
 
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
+  storage: 'cookies', // 'localStorage', 'cookies', 'memory', 'auto'
   endpoints: {
     login: '/auth/login',
     refresh: '/auth/refresh',
+    logout: '/auth/logout',
   },
   tokens: {
     access: 'accessToken',
     refresh: 'refreshToken',
   },
-});
-
-// Login
-const user = await auth.login({
-  email: 'user@example.com',
-  password: 'password',
-});
-
-// Make authenticated requests
-const data = await auth.get('/api/profile');
-
-// Check authentication
-const isAuth = auth.isAuthenticated();
-```
-
-## Cookie-Based Authentication
-
-```typescript
-const auth = createAuthFlow({
-  baseURL: 'https://api.example.com',
-  tokenSource: 'cookies',
-  storage: {
-    type: 'cookies',
-    options: {
-      secure: true,
-      sameSite: 'lax',
-    },
-  },
-  tokens: { access: 'authToken', refresh: 'refreshToken' },
-  endpoints: { login: '/login', refresh: '/refresh' },
+  onTokenRefresh: (tokens) => console.log('Tokens refreshed'),
+  onAuthError: (error) => console.error('Auth error:', error),
 });
 ```
 
-## Next.js Server Components
+## Framework Integrations
+
+### Next.js
 
 ```typescript
-import { cookies } from 'next/headers';
-import { createAuthFlow } from '@jmndao/auth-flow';
+// Server Actions
+import { createServerActionAuth, loginAction } from '@jmndao/auth-flow/frameworks/nextjs';
 
-export async function getProfile() {
-  const cookieStore = await cookies();
+const auth = createServerActionAuth({ baseURL: 'https://api.example.com' });
 
-  const auth = createAuthFlow(config, {
-    cookies: () => cookieStore,
-    cookieSetter: (name, value, options) => {
-      cookieStore.set(name, value, options);
-    },
-  });
-
-  return await auth.get('/api/profile');
+export async function login(formData: FormData) {
+  'use server';
+  const credentials = {
+    email: formData.get('email'),
+    password: formData.get('password'),
+  };
+  return loginAction(auth, credentials);
 }
 ```
 
-## Enhanced Client (v2)
-
 ```typescript
-import { createAuthFlowV2 } from '@jmndao/auth-flow/v2';
+// Middleware
+import { createAuthMiddleware } from '@jmndao/auth-flow/frameworks/nextjs';
 
-const auth = createAuthFlowV2({
-  baseURL: 'https://api.example.com',
-  caching: { enabled: true, defaultTTL: 300000 },
-  monitoring: { enabled: true },
-  circuitBreaker: { threshold: 5 },
-  retry: { attempts: 3, strategy: 'exponential' },
+export default createAuthMiddleware({
+  publicPaths: ['/login', '/register'],
+  loginUrl: '/login',
 });
 ```
 
-## HTTP Methods
+### React
 
 ```typescript
-// All HTTP methods supported
-const users = await auth.get('/api/users');
-const newUser = await auth.post('/api/users', userData);
-const updated = await auth.put('/api/users/1', updates);
-const patched = await auth.patch('/api/users/1', { status: 'active' });
-await auth.delete('/api/users/1');
+// Copy the implementation from the library documentation
+import { AuthProvider, useAuth } from './auth'; // Your implementation
+
+function App() {
+  return (
+    <AuthProvider config={{ baseURL: 'https://api.example.com' }}>
+      <Dashboard />
+    </AuthProvider>
+  );
+}
+
+function Dashboard() {
+  const { isAuthenticated, login, logout } = useAuth();
+
+  if (!isAuthenticated) {
+    return <LoginForm onLogin={login} />;
+  }
+
+  return <div>Welcome! <button onClick={logout}>Logout</button></div>;
+}
 ```
 
-## Token Management
+### Vue 3
 
 ```typescript
-// Get current tokens
-const tokens = await auth.getTokens();
+// Copy the implementation from the library documentation
+import { createAuth } from './auth'; // Your implementation
 
-// Set tokens manually
-await auth.setTokens({
-  accessToken: 'token',
-  refreshToken: 'refresh',
-});
-
-// Clear tokens
-await auth.clearTokens();
-
-// Check authentication status
-const isAuth = auth.isAuthenticated();
+const { provide } = createAuth({ baseURL: 'https://api.example.com' });
+provide(); // In your main component
 ```
 
-## Framework Compatibility
+## Presets
 
-AuthFlow works with all major JavaScript frameworks:
-
-- **✅ Next.js** - App Router and Pages Router support
-- **✅ React** - Client and server components
-- **✅ Vue/Nuxt** - Composition and Options API
-- **✅ Express** - Middleware and route handlers
-- **✅ SvelteKit** - Server and client-side
-- **✅ Vanilla JS** - Browser and Node.js environments
-
-## Configuration Presets
+Quick configurations for common scenarios:
 
 ```typescript
 import {
-  createProductionAuthFlow,
-  createPerformantAuthFlow,
-  createSecureAuthFlow,
-  createResilientAuthFlow,
-} from '@jmndao/auth-flow/v2';
+  createSimpleAuth, // localStorage
+  createServerAuth, // cookies for SSR
+  createNextJSAuth, // Next.js optimized
+  createDevAuth, // development with logging
+  createProductionAuth, // production optimized
+} from '@jmndao/auth-flow/presets';
 
-// Production-ready with monitoring
-const prodAuth = createProductionAuthFlow('https://api.example.com');
+const auth = createNextJSAuth('https://api.example.com');
+```
 
-// High-performance with caching
-const fastAuth = createPerformantAuthFlow('https://api.example.com');
+## Diagnostics
 
-// Security-focused with encryption
-const secureAuth = createSecureAuthFlow('https://api.example.com', 'encryption-key', 'signing-key');
+Built-in troubleshooting tools:
 
-// Resilient for unreliable networks
-const resilientAuth = createResilientAuthFlow('https://api.example.com');
+```typescript
+import { diagnose } from '@jmndao/auth-flow/diagnostics';
+
+const report = await diagnose({ baseURL: 'https://api.example.com' });
+console.log(report.issues);
+console.log(report.fixes);
 ```
 
 ## Error Handling
 
+AuthFlow handles common authentication errors automatically:
+
+- **401 Unauthorized**: Automatically attempts token refresh
+- **Token Expiration**: Refreshes tokens before they expire
+- **Network Errors**: Retries requests with exponential backoff
+- **Storage Failures**: Falls back to alternative storage methods
+
+## TypeScript Support
+
+Full TypeScript support with type inference:
+
 ```typescript
-try {
-  await auth.login(credentials);
-} catch (error) {
-  if (error.status === 401) {
-    console.log('Invalid credentials');
-  } else if (error.status === 0) {
-    console.log('Network error');
-  }
+interface User {
+  id: string;
+  email: string;
+  name: string;
 }
+
+interface LoginCredentials {
+  email: string;
+  password: string;
+}
+
+const user = await auth.login<User, LoginCredentials>(credentials);
+const profile = await auth.get<User>('/user/profile');
 ```
 
-## Documentation
+## Browser Support
 
-- [API Reference](./docs/api-reference.md) - Complete API documentation
-- [Examples](./docs/examples.md) - Real-world usage examples
-- [Troubleshooting](./docs/troubleshooting.md) - Common issues and solutions
-- [Middleware Setup](./docs/middleware-setup.md) - Next.js middleware configuration
-
-## Environment Support
-
-- **Browsers** - All modern browsers
-- **Node.js** - Version 16 and above
-- **React Native** - With AsyncStorage
-- **Edge Runtime** - Vercel, Cloudflare Workers
-
-## Contributing
-
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md).
+- Chrome 70+
+- Firefox 65+
+- Safari 12+
+- Edge 79+
+- Node.js 16+
 
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## Support
+
+- Documentation: https://github.com/jmndao/auth-flow/wiki
+- Issues: https://github.com/jmndao/auth-flow/issues
+- Discussions: https://github.com/jmndao/auth-flow/discussions

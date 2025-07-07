@@ -1,21 +1,20 @@
 import { TokenManager } from '../core/token-manager';
+import { MemoryStorage } from '../storage/memory';
 
 describe('TokenManager', () => {
   let tokenManager: TokenManager;
+  let storage: MemoryStorage;
 
   beforeEach(() => {
-    tokenManager = new TokenManager({ access: 'accessToken', refresh: 'refreshToken' }, 'memory');
+    storage = new MemoryStorage();
+    tokenManager = new TokenManager(storage, { access: 'accessToken', refresh: 'refreshToken' });
   });
 
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
-  describe('Token Storage and Retrieval', () => {
-    test('should set and get tokens', async () => {
+  describe('token storage', () => {
+    it('should store and retrieve tokens', async () => {
       const tokens = {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
       };
 
       await tokenManager.setTokens(tokens);
@@ -24,155 +23,106 @@ describe('TokenManager', () => {
       expect(retrievedTokens).toEqual(tokens);
     });
 
-    test('should return null when no tokens exist', async () => {
+    it('should return null when no tokens exist', async () => {
       const tokens = await tokenManager.getTokens();
       expect(tokens).toBeNull();
     });
 
-    test('should clear tokens', async () => {
-      const tokens = {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-      };
+    it('should clear tokens', async () => {
+      await tokenManager.setTokens({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      });
 
-      await tokenManager.setTokens(tokens);
       await tokenManager.clearTokens();
+      const tokens = await tokenManager.getTokens();
 
-      const retrievedTokens = await tokenManager.getTokens();
-      expect(retrievedTokens).toBeNull();
-    });
-
-    test('should get individual access token', async () => {
-      const tokens = {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-      };
-
-      await tokenManager.setTokens(tokens);
-      const accessToken = await tokenManager.getAccessToken();
-
-      expect(accessToken).toBe('test-access-token');
-    });
-
-    test('should get individual refresh token', async () => {
-      const tokens = {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-      };
-
-      await tokenManager.setTokens(tokens);
-      const refreshToken = await tokenManager.getRefreshToken();
-
-      expect(refreshToken).toBe('test-refresh-token');
+      expect(tokens).toBeNull();
     });
   });
 
-  describe('Token Validation', () => {
-    test('should return false for hasValidTokens when no tokens exist', async () => {
-      expect(await tokenManager.hasValidTokens()).toBe(false);
+  describe('token validation', () => {
+    it('should validate non-expired JWT tokens', () => {
+      // JWT with exp claim in the future
+      const futureExp = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+      const payload = { exp: futureExp, sub: 'user123' };
+      const token = `header.${btoa(JSON.stringify(payload))}.signature`;
+
+      expect(tokenManager.isTokenExpired(token)).toBe(false);
     });
 
-    test('should return true for hasValidTokens when tokens exist', async () => {
-      const tokens = {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-      };
+    it('should detect expired JWT tokens', () => {
+      // JWT with exp claim in the past
+      const pastExp = Math.floor(Date.now() / 1000) - 3600; // 1 hour ago
+      const payload = { exp: pastExp, sub: 'user123' };
+      const token = `header.${btoa(JSON.stringify(payload))}.signature`;
 
-      await tokenManager.setTokens(tokens);
+      expect(tokenManager.isTokenExpired(token)).toBe(true);
+    });
+
+    it('should handle invalid token format', () => {
+      expect(tokenManager.isTokenExpired('invalid-token')).toBe(true);
+      expect(tokenManager.isTokenExpired('')).toBe(true);
+    });
+
+    it('should handle tokens without expiration', () => {
+      const payload = { sub: 'user123' }; // No exp claim
+      const token = `header.${btoa(JSON.stringify(payload))}.signature`;
+
+      expect(tokenManager.isTokenExpired(token)).toBe(false);
+    });
+  });
+
+  describe('token existence checks', () => {
+    it('should check if tokens exist synchronously', async () => {
+      expect(tokenManager.hasTokens()).toBe(false);
+
+      await tokenManager.setTokens({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      });
+
+      expect(tokenManager.hasTokens()).toBe(true);
+    });
+
+    it('should validate token existence and validity', async () => {
+      expect(await tokenManager.hasValidTokens()).toBe(false);
+
+      await tokenManager.setTokens({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      });
+
       expect(await tokenManager.hasValidTokens()).toBe(true);
     });
-
-    test('should return false for hasTokens when no tokens exist', async () => {
-      expect(await tokenManager.hasTokens()).toBe(false);
-    });
-
-    test('should return true for hasTokens when tokens exist', async () => {
-      const tokens = {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-      };
-
-      await tokenManager.setTokens(tokens);
-      expect(await tokenManager.hasTokens()).toBe(true);
-    });
   });
 
-  describe('JWT Token Expiration', () => {
-    test('should detect expired JWT token', () => {
-      // Create an expired JWT (exp in the past)
-      const expiredJWT =
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJleHAiOjE1MTYyMzkwMjJ9.XbPfbIHMI6arZ3Y922BhjWgQzWXcXNrz0ogtVhfEd2o';
-
-      expect(tokenManager.isTokenExpired(expiredJWT)).toBe(true);
+  describe('individual token access', () => {
+    beforeEach(async () => {
+      await tokenManager.setTokens({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      });
     });
 
-    test('should detect non-expired JWT token', () => {
-      // Create a non-expired JWT (exp in the future)
-      const futureTimestamp = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
-      const payload = btoa(JSON.stringify({ exp: futureTimestamp }));
-      const validJWT = `header.${payload}.signature`;
-
-      expect(tokenManager.isTokenExpired(validJWT)).toBe(false);
+    it('should get access token', async () => {
+      const accessToken = await tokenManager.getAccessToken();
+      expect(accessToken).toBe('access-token');
     });
 
-    test('should handle non-JWT tokens gracefully', () => {
-      const nonJWT = 'not-a-jwt-token';
-
-      // Non-JWT tokens should be considered "expired" (true) since they can't be validated
-      expect(tokenManager.isTokenExpired(nonJWT)).toBe(true);
+    it('should get refresh token', async () => {
+      const refreshToken = await tokenManager.getRefreshToken();
+      expect(refreshToken).toBe('refresh-token');
     });
 
-    test('should handle malformed JWT tokens', () => {
-      const malformedJWT = 'header.invalid-payload.signature';
-
-      // Malformed JWT tokens should be considered "expired" (true) since they can't be validated
-      expect(tokenManager.isTokenExpired(malformedJWT)).toBe(true);
-    });
-  });
-
-  describe('Error Handling', () => {
-    test('should throw error when setting invalid tokens', async () => {
-      // Test with empty accessToken
-      const invalidTokens1 = {
-        accessToken: '',
-        refreshToken: 'test-refresh-token',
-      };
-
-      await expect(tokenManager.setTokens(invalidTokens1)).rejects.toThrow(
-        'accessToken must be a non-empty string'
-      );
-
-      // Test with empty refreshToken
-      const invalidTokens2 = {
-        accessToken: 'test-access-token',
-        refreshToken: '',
-      };
-
-      await expect(tokenManager.setTokens(invalidTokens2)).rejects.toThrow(
-        'refreshToken must be a non-empty string'
-      );
+    it('should check access token expiration', async () => {
+      const expired = await tokenManager.isAccessTokenExpired();
+      expect(expired).toBe(true); // Non-JWT token is considered expired
     });
 
-    test('should handle storage errors gracefully', async () => {
-      // Mock storage adapter to throw error
-      const mockAdapter = {
-        get: jest.fn().mockRejectedValue(new Error('Storage error')),
-        set: jest.fn().mockRejectedValue(new Error('Storage error')),
-        remove: jest.fn().mockRejectedValue(new Error('Storage error')),
-        clear: jest.fn().mockRejectedValue(new Error('Storage error')),
-      };
-
-      const errorTokenManager = new TokenManager(
-        { access: 'accessToken', refresh: 'refreshToken' },
-        'memory'
-      );
-
-      // Replace the storage adapter with our mock
-      (errorTokenManager as any).storageAdapter = mockAdapter;
-
-      // Should handle storage errors gracefully and return null
-      const tokens = await errorTokenManager.getTokens();
-      expect(tokens).toBeNull();
+    it('should check refresh token expiration', async () => {
+      const expired = await tokenManager.isRefreshTokenExpired();
+      expect(expired).toBe(true); // Non-JWT token is considered expired
     });
   });
 });

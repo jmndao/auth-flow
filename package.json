@@ -1,90 +1,51 @@
 {
   "name": "@jmndao/auth-flow",
-  "version": "2.1.1",
-  "description": "Universal authentication client with production-ready features: caching, monitoring, security, resilience, and more",
+  "version": "3.0.0",
+  "description": "Universal authentication client with automatic token refresh and framework integrations",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist/*.js",
-    "dist/*.d.ts",
-    "dist/types",
-    "dist/core",
-    "dist/adapters",
-    "dist/utils",
-    "dist/middleware",
+    "dist",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "npm run build:dev",
-    "build:dev": "npm run clean && rollup -c && rollup -c rollup.config.v2.mjs && rollup -c rollup.config.middleware.mjs",
-    "build:prod": "npm run clean && NODE_ENV=production rollup -c && NODE_ENV=production rollup -c rollup.config.v2.mjs && NODE_ENV=production rollup -c rollup.config.middleware.mjs",
+    "build": "rollup -c",
     "build:watch": "rollup -c -w",
-    "build:all": "npm run clean && npm run build:prod",
-    "verify:build": "node scripts/verify-build.js",
+    "dev": "rollup -c -w",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint . --ext .ts --fix",
+    "lint:check": "eslint . --ext .ts",
+    "format": "prettier --write **/*.{ts,js,json,md}",
+    "format:check": "prettier --check **/*.{ts,js,json,md}",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:ci": "jest --coverage --watchAll=false --passWithNoTests",
-    "test:v2": "jest --testPathPattern=v2",
-    "test:middleware": "jest --testPathPattern=middleware",
-    "type-check": "tsc --noEmit",
-    "type-check:v2": "tsc --noEmit -p tsconfig.v2.json",
-    "type-check:middleware": "tsc --noEmit -p tsconfig.middleware.json",
-    "type-check:all": "npm run type-check && npm run type-check:v2 && npm run type-check:middleware",
-    "lint": "eslint . --ext .ts,.tsx --ignore-path .gitignore",
-    "lint:fix": "eslint . --ext .ts,.tsx --fix --ignore-path .gitignore",
-    "format": "prettier --write **/*.{ts,tsx,js,json,md}",
-    "format:check": "prettier --check **/*.{ts,tsx,js,json,md}",
-    "dev": "rollup -c -w",
-    "dev:v2": "rollup -c rollup.config.v2.mjs -w",
-    "dev:middleware": "rollup -c rollup.config.middleware.mjs -w",
-    "pretest": "npm run type-check:all && npm run lint",
-    "prebuild": "npm run clean && npm run pretest && npm run test:ci",
-    "prepublishOnly": "npm run prebuild && npm run build:prod && npm run verify:build",
-    "clean": "rimraf dist coverage",
-    "size-check": "npm run build:prod && npm run check-sizes",
-    "check-sizes": "echo 'Bundle sizes:' && ls -lah dist/*.js | grep -v '.map'",
+    "clean": "rm -rf dist coverage",
+    "verify:build": "node scripts/verify-build.js",
     "changelog": "node scripts/changelog.js",
     "version": "node scripts/version.js && git add .",
+    "prepublishOnly": "npm run clean && npm run type-check && npm run lint:check && npm run test && npm run build && npm run verify:build",
     "release:patch": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version patch && npm publish && git push --follow-tags",
     "release:minor": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version minor && npm publish && git push --follow-tags",
     "release:major": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version major && npm publish && git push --follow-tags",
-    "release:beta": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version prerelease --preid=beta && npm publish --tag beta && git push --follow-tags",
-    "benchmark": "node scripts/benchmark.js",
-    "docs": "typedoc --out docs index.ts",
-    "docs:v2": "typedoc --out docs/v2 index-v2.ts",
-    "docs:middleware": "typedoc --out docs/middleware middleware/index.ts",
-    "docs:all": "npm run docs && npm run docs:v2 && npm run docs:middleware"
+    "release:beta": "npm run changelog && git add CHANGELOG.md && git commit -m \"docs: update CHANGELOG\" && npm version prerelease --preid=beta && npm publish --tag beta && git push --follow-tags"
   },
   "keywords": [
     "authentication",
     "auth",
-    "token",
     "jwt",
-    "session",
-    "login",
+    "token",
     "refresh",
-    "axios",
-    "typescript",
     "nextjs",
     "react",
+    "vue",
+    "typescript",
     "universal",
     "client",
-    "server",
-    "middleware",
-    "caching",
-    "performance",
-    "monitoring",
-    "security",
-    "resilience",
-    "circuit-breaker",
-    "retry",
-    "health-check",
-    "production-ready",
-    "enterprise"
+    "server"
   ],
   "author": {
     "name": "jmndao",
@@ -99,12 +60,25 @@
   "bugs": {
     "url": "https://github.com/jmndao/auth-flow/issues"
   },
-  "homepage": "https://auth-flow-virid.vercel.app",
+  "homepage": "https://github.com/jmndao/auth-flow#readme",
   "engines": {
     "node": ">=16.0.0"
   },
-  "dependencies": {
-    "axios": "^1.6.0"
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "vue": ">=3.0.0",
+    "next": ">=12.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^25.0.0",
@@ -112,27 +86,18 @@
     "@rollup/plugin-typescript": "^11.0.0",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
-    "@typescript-eslint/eslint-plugin": "^6.21.0",
-    "@typescript-eslint/parser": "^6.21.0",
-    "eslint": "^8.57.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-prettier": "^5.1.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.0",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
-    "prettier": "^3.2.0",
-    "rimraf": "^5.0.0",
+    "prettier": "^3.0.0",
     "rollup": "^4.0.0",
     "rollup-plugin-terser": "^7.0.0",
     "ts-jest": "^29.1.0",
-    "typescript": "^5.3.0",
-    "typedoc": "^0.25.0",
-    "bundlesize": "^0.18.1"
-  },
-  "peerDependencies": {
-    "axios": ">=1.0.0"
-  },
-  "optionalDependencies": {
-    "crypto-js": "^4.2.0"
+    "typescript": "^5.0.0"
   },
   "exports": {
     ".": {
@@ -140,55 +105,40 @@
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./v2": {
-      "import": "./dist/index-v2.esm.js",
-      "require": "./dist/index-v2.js",
-      "types": "./dist/index-v2.d.ts"
+    "./frameworks/react": {
+      "import": "./dist/frameworks/react/hooks.esm.js",
+      "require": "./dist/frameworks/react/hooks.js",
+      "types": "./dist/frameworks/react/hooks.d.ts"
+    },
+    "./frameworks/vue": {
+      "import": "./dist/frameworks/vue/composables.esm.js",
+      "require": "./dist/frameworks/vue/composables.js",
+      "types": "./dist/frameworks/vue/composables.d.ts"
+    },
+    "./frameworks/nextjs": {
+      "import": "./dist/frameworks/nextjs/index.esm.js",
+      "require": "./dist/frameworks/nextjs/index.js",
+      "types": "./dist/frameworks/nextjs/index.d.ts"
+    },
+    "./frameworks/vanilla": {
+      "import": "./dist/frameworks/vanilla/setup.esm.js",
+      "require": "./dist/frameworks/vanilla/setup.js",
+      "types": "./dist/frameworks/vanilla/setup.d.ts"
+    },
+    "./diagnostics": {
+      "import": "./dist/diagnostics/index.esm.js",
+      "require": "./dist/diagnostics/index.js",
+      "types": "./dist/diagnostics/index.d.ts"
+    },
+    "./presets": {
+      "import": "./dist/presets.esm.js",
+      "require": "./dist/presets.js",
+      "types": "./dist/presets.d.ts"
     },
     "./middleware": {
-      "import": "./dist/middleware.esm.js",
-      "require": "./dist/middleware.js",
+      "import": "./dist/middleware/index.esm.js",
+      "require": "./dist/middleware/index.js",
       "types": "./dist/middleware/index.d.ts"
     }
-  },
-  "sideEffects": false,
-  "publishConfig": {
-    "access": "public"
-  },
-  "funding": {
-    "type": "github",
-    "url": "https://github.com/sponsors/jmndao"
-  },
-  "badges": {
-    "npm": "https://img.shields.io/npm/v/@jmndao/auth-flow",
-    "downloads": "https://img.shields.io/npm/dm/@jmndao/auth-flow",
-    "license": "https://img.shields.io/npm/l/@jmndao/auth-flow",
-    "build": "https://img.shields.io/github/actions/workflow/status/jmndao/auth-flow/ci.yml",
-    "coverage": "https://img.shields.io/codecov/c/github/jmndao/auth-flow"
-  },
-  "config": {
-    "commitizen": {
-      "path": "./node_modules/cz-conventional-changelog"
-    }
-  },
-  "browserslist": [
-    "> 1%",
-    "last 2 versions",
-    "not dead",
-    "not ie <= 11"
-  ],
-  "bundlesize": [
-    {
-      "path": "./dist/index.js",
-      "maxSize": "70KB"
-    },
-    {
-      "path": "./dist/index-v2.js",
-      "maxSize": "140KB"
-    },
-    {
-      "path": "./dist/middleware.js",
-      "maxSize": "10KB"
-    }
-  ]
+  }
 }

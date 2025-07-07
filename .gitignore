@@ -6,7 +6,6 @@ yarn-error.log*
 
 # Build outputs
 dist/
-build/
 coverage/
 *.tsbuildinfo
 
@@ -17,20 +16,14 @@ coverage/
 .env.test.local
 .env.production.local
 
-# IDE and editor files
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
 
-# OS generated files
+# OS files
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 
 # Logs
@@ -49,32 +42,6 @@ pids
 # Optional eslint cache
 .eslintcache
 
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# Testing
-coverage/
-.nyc_output/
-junit.xml
-
-# Rollup cache
-.rollup.cache/
-
 # Temporary folders
 tmp/
 temp/
-
-# Package-lock (if using yarn)
-# package-lock.json
-
-# Documentation build
-docs/generated/
-
-# Benchmark results
-benchmark-results/

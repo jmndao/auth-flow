@@ -1,188 +1,126 @@
-import { MemoryStorageAdapter, CookieStorageAdapter, LocalStorageAdapter } from '../adapters';
+import { MemoryStorage } from '../storage/memory';
+import { BrowserStorage } from '../storage/browser';
+import { CookieStorage } from '../storage/cookie';
 
 describe('Storage Adapters', () => {
-  describe('MemoryStorageAdapter', () => {
-    let adapter: MemoryStorageAdapter;
+  describe('MemoryStorage', () => {
+    let storage: MemoryStorage;
 
     beforeEach(() => {
-      adapter = new MemoryStorageAdapter();
+      storage = new MemoryStorage();
     });
 
-    test('should store and retrieve values', () => {
-      adapter.set('testKey', 'testValue');
-      expect(adapter.get('testKey')).toBe('testValue');
+    it('should store and retrieve values', () => {
+      storage.set('key1', 'value1');
+      expect(storage.get('key1')).toBe('value1');
     });
 
-    test('should return null for non-existent keys', () => {
-      expect(adapter.get('nonExistentKey')).toBeNull();
+    it('should return null for non-existent keys', () => {
+      expect(storage.get('non-existent')).toBeNull();
     });
 
-    test('should remove values', () => {
-      adapter.set('testKey', 'testValue');
-      adapter.remove('testKey');
-      expect(adapter.get('testKey')).toBeNull();
+    it('should remove values', () => {
+      storage.set('key1', 'value1');
+      storage.remove('key1');
+      expect(storage.get('key1')).toBeNull();
     });
 
-    test('should clear all values', () => {
-      adapter.set('key1', 'value1');
-      adapter.set('key2', 'value2');
-      adapter.clear();
-      expect(adapter.get('key1')).toBeNull();
-      expect(adapter.get('key2')).toBeNull();
+    it('should clear all values', () => {
+      storage.set('key1', 'value1');
+      storage.set('key2', 'value2');
+      storage.clear();
+      expect(storage.get('key1')).toBeNull();
+      expect(storage.get('key2')).toBeNull();
     });
   });
 
-  describe('CookieStorageAdapter', () => {
-    let adapter: CookieStorageAdapter;
+  describe('BrowserStorage', () => {
+    let storage: BrowserStorage;
 
     beforeEach(() => {
-      adapter = new CookieStorageAdapter();
+      storage = new BrowserStorage();
     });
 
-    test('should handle cookie options', () => {
-      const adapterWithOptions = new CookieStorageAdapter(
-        {},
-        {
-          secure: true,
-          sameSite: 'strict',
-          maxAge: 3600,
-        }
-      );
+    it('should use localStorage when available', () => {
+      const mockGetItem = jest.fn().mockReturnValue('test-value');
+      const mockSetItem = jest.fn();
+      const mockRemoveItem = jest.fn();
 
-      expect(adapterWithOptions).toBeInstanceOf(CookieStorageAdapter);
-    });
-
-    test('should handle server-side context', () => {
-      // Mock the server environment by setting window to undefined
-      const originalWindow = global.window;
-      delete (global as any).window;
-
-      const mockReq = {
-        cookies: {
-          testKey: 'testValue',
+      Object.defineProperty(window, 'localStorage', {
+        value: {
+          getItem: mockGetItem,
+          setItem: mockSetItem,
+          removeItem: mockRemoveItem,
         },
-      };
+        writable: true,
+      });
 
-      const mockRes = {
-        cookie: jest.fn(),
-        clearCookie: jest.fn(),
-      };
+      storage = new BrowserStorage();
+      storage.set('test-key', 'test-value');
+      expect(mockSetItem).toHaveBeenCalledWith('test-key', 'test-value');
 
-      const serverAdapter = new CookieStorageAdapter(
-        { req: mockReq, res: mockRes },
-        { httpOnly: true }
-      );
+      const value = storage.get('test-key');
+      expect(mockGetItem).toHaveBeenCalledWith('test-key');
+      expect(value).toBe('test-value');
 
-      expect(serverAdapter.get('testKey')).toBe('testValue');
+      storage.remove('test-key');
+      expect(mockRemoveItem).toHaveBeenCalledWith('test-key');
+    });
 
-      serverAdapter.set('newKey', 'newValue');
-      expect(mockRes.cookie).toHaveBeenCalledWith(
-        'newKey',
-        'newValue',
-        expect.objectContaining({
-          httpOnly: true,
-          secure: true,
-          sameSite: 'lax',
-          path: '/',
-        })
-      );
+    it('should handle localStorage errors gracefully', () => {
+      const mockGetItem = jest.fn().mockImplementation(() => {
+        throw new Error('Storage disabled');
+      });
 
-      // Restore window
-      (global as any).window = originalWindow;
+      Object.defineProperty(window, 'localStorage', {
+        value: { getItem: mockGetItem },
+        writable: true,
+      });
+
+      storage = new BrowserStorage();
+      expect(storage.get('test-key')).toBeNull();
     });
   });
 
-  describe('LocalStorageAdapter', () => {
-    let adapter: LocalStorageAdapter;
-    const mockLocalStorage = (global as any).localStorage;
+  describe('CookieStorage', () => {
+    let storage: CookieStorage;
 
     beforeEach(() => {
-      // Reset localStorage mock
-      mockLocalStorage.clear();
-      mockLocalStorage.getItem.mockClear();
-      mockLocalStorage.setItem.mockClear();
-      mockLocalStorage.removeItem.mockClear();
-
-      // Setup default behavior
-      mockLocalStorage.getItem.mockImplementation((key: string) => {
-        return mockLocalStorage.__storage[key] || null;
+      storage = new CookieStorage();
+      // Mock document.cookie
+      Object.defineProperty(document, 'cookie', {
+        writable: true,
+        value: '',
       });
-
-      mockLocalStorage.setItem.mockImplementation((key: string, value: string) => {
-        mockLocalStorage.__storage[key] = value;
-      });
-
-      mockLocalStorage.removeItem.mockImplementation((key: string) => {
-        delete mockLocalStorage.__storage[key];
-      });
-
-      mockLocalStorage.clear.mockImplementation(() => {
-        mockLocalStorage.__storage = {};
-      });
-
-      mockLocalStorage.__storage = {};
-
-      adapter = new LocalStorageAdapter();
     });
 
-    test('should store and retrieve values', () => {
-      adapter.set('testKey', 'testValue');
-      expect(adapter.get('testKey')).toBe('testValue');
-    });
-
-    test('should return null for non-existent keys', () => {
-      expect(adapter.get('nonExistentKey')).toBeNull();
-    });
-
-    test('should remove values', () => {
-      adapter.set('testKey', 'testValue');
-      adapter.remove('testKey');
-      expect(adapter.get('testKey')).toBeNull();
-    });
-
-    test('should clear all values', () => {
-      adapter.set('key1', 'value1');
-      adapter.set('key2', 'value2');
-      adapter.clear();
-      expect(adapter.get('key1')).toBeNull();
-      expect(adapter.get('key2')).toBeNull();
-    });
-
-    test('should handle localStorage errors gracefully', () => {
-      // Mock localStorage to throw errors
-      mockLocalStorage.getItem.mockImplementation(() => {
-        throw new Error('localStorage error');
+    it('should set and get cookies in browser environment', async () => {
+      // Mock document.cookie getter/setter
+      let cookieValue = '';
+      Object.defineProperty(document, 'cookie', {
+        get: () => cookieValue,
+        set: (value) => {
+          cookieValue = value;
+        },
+        configurable: true,
       });
 
-      mockLocalStorage.setItem.mockImplementation(() => {
-        throw new Error('localStorage error');
-      });
-
-      // Should not throw, should return null
-      expect(adapter.get('testKey')).toBeNull();
-
-      // Should not throw
-      expect(() => adapter.set('testKey', 'testValue')).not.toThrow();
+      await storage.set('test-key', 'test-value');
+      expect(cookieValue).toContain('test-key=test-value');
     });
 
-    test('should throw error when localStorage is not available', () => {
-      // Mock window.localStorage to be undefined
-      const originalLocalStorage = (global as any).localStorage;
-      delete (global as any).localStorage;
-      Object.defineProperty(global, 'localStorage', {
+    it('should handle server environment gracefully', async () => {
+      // Mock server environment
+      Object.defineProperty(global, 'window', {
         value: undefined,
         writable: true,
       });
 
-      expect(() => new LocalStorageAdapter()).toThrow(
-        'LocalStorage is not available in this environment'
-      );
+      storage = new CookieStorage();
 
-      // Restore localStorage
-      Object.defineProperty(global, 'localStorage', {
-        value: originalLocalStorage,
-        writable: true,
-      });
+      // Should not throw errors
+      await expect(storage.set('test-key', 'test-value')).resolves.not.toThrow();
+      await expect(storage.get('test-key')).resolves.toBeNull();
     });
   });
 });

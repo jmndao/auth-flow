@@ -1,97 +1,52 @@
-export type Environment = 'client' | 'server' | 'auto';
+import type { TokenPair, AuthError } from './auth';
 
-export type TokenSource = 'body' | 'cookies';
+/**
+ * Configuration type definitions
+ */
 
-export type StorageType = 'localStorage' | 'cookies' | 'memory' | 'auto';
-
-export interface TokenConfig {
-  access: string;
-  refresh: string;
-}
-
-export interface EndpointsConfig {
-  login: string;
-  refresh: string;
-  logout?: string;
-}
-
-export interface StorageConfig {
-  type?: StorageType;
-  options?: {
-    secure?: boolean;
-    sameSite?: 'strict' | 'lax' | 'none';
-    maxAge?: number;
-    domain?: string;
-    path?: string;
-    httpOnly?: boolean;
-    waitForCookies?: number;
-    fallbackToBody?: boolean;
-    retryCount?: number;
-    debugMode?: boolean;
+export interface AuthConfig {
+  baseURL: string;
+  endpoints?: {
+    login?: string;
+    refresh?: string;
+    logout?: string;
   };
-}
-
-export interface RetryConfig {
-  attempts?: number;
-  delay?: number;
-}
-
-// Input config - allows optional endpoints and tokens
-export interface AuthFlowConfig {
-  environment?: Environment;
-  endpoints?: EndpointsConfig;
-  tokens?: TokenConfig;
-  tokenSource?: TokenSource;
-  storage?: StorageType | StorageConfig;
-  baseURL?: string;
+  tokens?: {
+    access?: string;
+    refresh?: string;
+  };
+  storage?: 'auto' | 'memory' | 'browser' | 'cookies';
   timeout?: number;
-  retry?: RetryConfig;
+  retry?: {
+    attempts?: number;
+    delay?: number;
+  };
   onTokenRefresh?: (tokens: TokenPair) => void;
   onAuthError?: (error: AuthError) => void;
   onLogout?: () => void;
 }
 
-// Internal config - after validation, these are required
-export interface ValidatedAuthFlowConfig extends AuthFlowConfig {
-  endpoints: EndpointsConfig;
-  tokens: TokenConfig;
-  environment: Environment;
-  tokenSource: TokenSource;
-  storage: StorageType | StorageConfig;
+/**
+ * Internal normalized configuration with all required fields
+ */
+export interface NormalizedConfig {
+  baseURL: string;
+  endpoints: {
+    login: string;
+    refresh: string;
+    logout: string;
+  };
+  tokens: {
+    access: string;
+    refresh: string;
+  };
+  storage: 'auto' | 'memory' | 'browser' | 'cookies';
   timeout: number;
-  retry: RetryConfig;
-}
-
-export interface TokenPair {
-  accessToken: string;
-  refreshToken: string;
-}
-
-export interface AuthError {
-  status: number;
-  message: string;
-  code?: string;
-  originalError?: any;
-}
-
-export interface RequestConfig {
-  headers?: Record<string, string>;
-  timeout?: number;
-  baseURL?: string;
-  [key: string]: any;
-}
-
-export interface AuthContext {
-  /** Express-style request object */
-  req?: any;
-  /** Express-style response object */
-  res?: any;
-  /** Next.js App Router cookies() function */
-  cookies?: () => any | Promise<any>;
-  /** Next.js App Router headers() function */
-  headers?: () => any | Promise<any>;
-  /** Pre-extracted cookies object for performance */
-  cookiesObject?: Record<string, string>;
-  /** Custom cookie setter function */
-  cookieSetter?: (name: string, value: string, options?: any) => void;
+  retry: {
+    attempts: number;
+    delay: number;
+  };
+  onTokenRefresh?: ((tokens: TokenPair) => void) | undefined;
+  onAuthError?: ((error: AuthError) => void) | undefined;
+  onLogout?: (() => void) | undefined;
 }
