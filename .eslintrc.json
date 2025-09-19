@@ -14,16 +14,14 @@
     "@typescript-eslint/no-explicit-any": "warn",
     "@typescript-eslint/explicit-function-return-type": "off",
     "@typescript-eslint/explicit-module-boundary-types": "off",
-    "@typescript-eslint/no-non-null-assertion": "warn",
     "prefer-const": "error",
     "no-var": "error",
-    "no-console": "warn",
     "eqeqeq": "error"
   },
   "env": {
-    "node": true,
     "browser": true,
-    "es2020": true
+    "es2020": true,
+    "jest": true
   },
-  "ignorePatterns": ["dist/", "node_modules/", "*.config.js", "*.config.mjs"]
+  "ignorePatterns": ["dist/", "node_modules/", "*.config.js"]
 }

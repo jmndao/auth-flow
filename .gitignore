@@ -6,8 +6,12 @@ yarn-error.log*
 
 # Build outputs
 dist/
-coverage/
+build/
 *.tsbuildinfo
+
+# Coverage
+coverage/
+*.lcov
 
 # Environment variables
 .env
@@ -16,14 +20,20 @@ coverage/
 .env.test.local
 .env.production.local
 
-# IDE files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# OS files
+# OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
 # Logs
@@ -39,8 +49,11 @@ pids
 # Optional npm cache directory
 .npm
 
-# Optional eslint cache
+# ESLint cache
 .eslintcache
+
+# TypeScript cache
+*.tsbuildinfo
 
 # Temporary folders
 tmp/

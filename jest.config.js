@@ -1,37 +1,15 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
-  roots: ['<rootDir>/tests'],
-  testMatch: ['<rootDir>/tests/**/*.test.+(ts|tsx|js)', '<rootDir>/tests/**/*.spec.+(ts|tsx|js)'],
-  testPathIgnorePatterns: ['<rootDir>/tests/setup.ts'],
+  roots: ['<rootDir>/src'],
+  testMatch: ['**/__tests__/**/*.test.ts', '**/*.test.ts'],
   transform: {
-    '^.+\\.(ts|tsx)$': [
-      'ts-jest',
-      {
-        tsconfig: 'tsconfig.jest.json',
-      },
-    ],
+    '^.+\\.ts$': 'ts-jest',
   },
-  collectCoverageFrom: [
-    'adapters/**/*.{ts,tsx}',
-    'core/**/*.{ts,tsx}',
-    'types/**/*.{ts,tsx}',
-    'utils/**/*.{ts,tsx}',
-    'index.ts',
-    '!**/*.d.ts',
-    '!node_modules/**',
-    '!dist/**',
-    '!coverage/**',
-  ],
+  collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts', '!src/**/*.test.ts', '!src/index.ts'],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
-  moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/$1',
-  },
-  testEnvironmentOptions: {
-    url: 'http://localhost',
-  },
+  setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
   clearMocks: true,
   restoreMocks: true,
 };
