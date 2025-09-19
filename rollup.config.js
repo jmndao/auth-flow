@@ -1,10 +1,10 @@
-import resolve from '@rollup/plugin-node-resolve';
-import typescript from '@rollup/plugin-typescript';
-import { terser } from 'rollup-plugin-terser';
+const resolve = require('@rollup/plugin-node-resolve');
+const typescript = require('@rollup/plugin-typescript');
+const { terser } = require('@rollup/plugin-terser');
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-export default {
+module.exports = {
   input: 'src/index.ts',
   output: [
     {
