@@ -5,7 +5,7 @@ import { HttpResponse, RequestConfig, AuthError, NormalizedConfig } from './type
  */
 export class HttpClient {
   private readonly config: NormalizedConfig;
-  private requestQueue: Array<() => Promise<any>> = [];
+  private requestQueue: Array<() => Promise<unknown>> = [];
   private isRefreshing = false;
 
   constructor(config: NormalizedConfig) {
@@ -15,10 +15,10 @@ export class HttpClient {
   /**
    * Make HTTP request
    */
-  async request<T = any>(
+  async request<T = unknown>(
     method: string,
     url: string,
-    data?: any,
+    data?: unknown,
     config: RequestConfig = {}
   ): Promise<HttpResponse<T>> {
     const fullUrl = this.buildUrl(url);
@@ -50,35 +50,47 @@ export class HttpClient {
   /**
    * GET request
    */
-  async get<T = any>(url: string, config?: RequestConfig): Promise<HttpResponse<T>> {
+  async get<T = unknown>(url: string, config?: RequestConfig): Promise<HttpResponse<T>> {
     return this.request<T>('GET', url, undefined, config);
   }
 
   /**
    * POST request
    */
-  async post<T = any>(url: string, data?: any, config?: RequestConfig): Promise<HttpResponse<T>> {
+  async post<T = unknown>(
+    url: string,
+    data?: unknown,
+    config?: RequestConfig
+  ): Promise<HttpResponse<T>> {
     return this.request<T>('POST', url, data, config);
   }
 
   /**
    * PUT request
    */
-  async put<T = any>(url: string, data?: any, config?: RequestConfig): Promise<HttpResponse<T>> {
+  async put<T = unknown>(
+    url: string,
+    data?: unknown,
+    config?: RequestConfig
+  ): Promise<HttpResponse<T>> {
     return this.request<T>('PUT', url, data, config);
   }
 
   /**
    * PATCH request
    */
-  async patch<T = any>(url: string, data?: any, config?: RequestConfig): Promise<HttpResponse<T>> {
+  async patch<T = unknown>(
+    url: string,
+    data?: unknown,
+    config?: RequestConfig
+  ): Promise<HttpResponse<T>> {
     return this.request<T>('PATCH', url, data, config);
   }
 
   /**
    * DELETE request
    */
-  async delete<T = any>(url: string, config?: RequestConfig): Promise<HttpResponse<T>> {
+  async delete<T = unknown>(url: string, config?: RequestConfig): Promise<HttpResponse<T>> {
     return this.request<T>('DELETE', url, undefined, config);
   }
 
@@ -88,7 +100,7 @@ export class HttpClient {
   queueRequest<T>(
     method: string,
     url: string,
-    data?: any,
+    data?: unknown,
     config?: RequestConfig
   ): Promise<HttpResponse<T>> {
     return new Promise((resolve, reject) => {
@@ -140,7 +152,11 @@ export class HttpClient {
     return `${baseURL}${path}`;
   }
 
-  private buildRequestConfig(method: string, data?: any, config: RequestConfig = {}): RequestInit {
+  private buildRequestConfig(
+    method: string,
+    data?: unknown,
+    config: RequestConfig = {}
+  ): RequestInit {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...config.headers,

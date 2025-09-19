@@ -35,7 +35,7 @@ export interface AuthError {
   code?: string;
 }
 
-export interface HttpResponse<T = any> {
+export interface HttpResponse<T = unknown> {
   data: T;
   status: number;
   statusText: string;

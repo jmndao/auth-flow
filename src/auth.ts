@@ -33,7 +33,7 @@ export class Auth {
   /**
    * Login with credentials
    */
-  async login<T = any>(credentials: LoginCredentials): Promise<T> {
+  async login<T = unknown>(credentials: LoginCredentials): Promise<T> {
     return this.authManager.login<T>(credentials);
   }
 
@@ -82,35 +82,47 @@ export class Auth {
   /**
    * HTTP GET with authentication
    */
-  async get<T = any>(url: string, config?: RequestConfig): Promise<HttpResponse<T>> {
+  async get<T = unknown>(url: string, config?: RequestConfig): Promise<HttpResponse<T>> {
     return this.authManager.authenticatedRequest<T>('GET', url, undefined, config);
   }
 
   /**
    * HTTP POST with authentication
    */
-  async post<T = any>(url: string, data?: any, config?: RequestConfig): Promise<HttpResponse<T>> {
+  async post<T = unknown>(
+    url: string,
+    data?: unknown,
+    config?: RequestConfig
+  ): Promise<HttpResponse<T>> {
     return this.authManager.authenticatedRequest<T>('POST', url, data, config);
   }
 
   /**
    * HTTP PUT with authentication
    */
-  async put<T = any>(url: string, data?: any, config?: RequestConfig): Promise<HttpResponse<T>> {
+  async put<T = unknown>(
+    url: string,
+    data?: unknown,
+    config?: RequestConfig
+  ): Promise<HttpResponse<T>> {
     return this.authManager.authenticatedRequest<T>('PUT', url, data, config);
   }
 
   /**
    * HTTP PATCH with authentication
    */
-  async patch<T = any>(url: string, data?: any, config?: RequestConfig): Promise<HttpResponse<T>> {
+  async patch<T = unknown>(
+    url: string,
+    data?: unknown,
+    config?: RequestConfig
+  ): Promise<HttpResponse<T>> {
     return this.authManager.authenticatedRequest<T>('PATCH', url, data, config);
   }
 
   /**
    * HTTP DELETE with authentication
    */
-  async delete<T = any>(url: string, config?: RequestConfig): Promise<HttpResponse<T>> {
+  async delete<T = unknown>(url: string, config?: RequestConfig): Promise<HttpResponse<T>> {
     return this.authManager.authenticatedRequest<T>('DELETE', url, undefined, config);
   }
 

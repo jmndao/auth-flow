@@ -26,7 +26,7 @@ export class AuthManager {
   /**
    * Handle user login
    */
-  async login<T = any>(credentials: LoginCredentials): Promise<T> {
+  async login<T = unknown>(credentials: LoginCredentials): Promise<T> {
     const response = await this.httpClient.post<T>(this.config.endpoints.login, credentials);
 
     const tokens = this.extractTokens(response.data);
@@ -54,7 +54,7 @@ export class AuthManager {
   async authenticatedRequest<T>(
     method: string,
     url: string,
-    data?: any,
+    data?: unknown,
     config: RequestConfig = {}
   ): Promise<HttpResponse<T>> {
     // Add auth header if we have a token
@@ -83,7 +83,7 @@ export class AuthManager {
   private async handleAuthError<T>(
     method: string,
     url: string,
-    data?: any,
+    data?: unknown,
     config: RequestConfig = {}
   ): Promise<HttpResponse<T>> {
     // If already refreshing, queue the request
