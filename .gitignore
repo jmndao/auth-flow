@@ -7,8 +7,11 @@ yarn-error.log*
 # Build outputs
 dist/
 build/
-coverage/
 *.tsbuildinfo
+
+# Coverage
+coverage/
+*.lcov
 
 # Environment variables
 .env
@@ -17,14 +20,14 @@ coverage/
 .env.test.local
 .env.production.local
 
-# IDE and editor files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS generated files
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -46,35 +49,12 @@ pids
 # Optional npm cache directory
 .npm
 
-# Optional eslint cache
+# ESLint cache
 .eslintcache
 
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# Testing
-coverage/
-.nyc_output/
-junit.xml
-
-# Rollup cache
-.rollup.cache/
+# TypeScript cache
+*.tsbuildinfo
 
 # Temporary folders
 tmp/
 temp/
-
-# Package-lock (if using yarn)
-# package-lock.json
-
-# Documentation build
-docs/generated/
-
-# Benchmark results
-benchmark-results/

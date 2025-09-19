@@ -1,34 +1,16 @@
 # AuthFlow
 
-Universal authentication client for JavaScript applications with production-ready features.
-
-[![npm version](https://img.shields.io/npm/v/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
-[![downloads](https://img.shields.io/npm/dm/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
-[![license](https://img.shields.io/npm/l/@jmndao/auth-flow)](https://github.com/jmndao/auth-flow/blob/main/LICENSE)
+Simple, clean authentication flow with separated permission system for client-side applications.
 
 ## Features
 
-- **Framework Agnostic** - Works with Next.js, React, Vue, Express, and more
-- **Multiple Storage Options** - localStorage, cookies, memory, or custom adapters
-- **Automatic Token Refresh** - Handles expired tokens seamlessly
-- **Production Ready** - Caching, monitoring, retry logic, and circuit breakers
-- **TypeScript First** - Complete type safety and intellisense
-- **Zero Dependencies** - Lightweight core with optional features# AuthFlow
-
-Universal authentication client for JavaScript applications with production-ready features.
-
-[![npm version](https://img.shields.io/npm/v/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
-[![downloads](https://img.shields.io/npm/dm/@jmndao/auth-flow)](https://www.npmjs.com/package/@jmndao/auth-flow)
-[![license](https://img.shields.io/npm/l/@jmndao/auth-flow)](https://github.com/jmndao/auth-flow/blob/main/LICENSE)
-
-## Features
-
-- **Framework Agnostic** - Works with Next.js, React, Vue, Express, and more
-- **Multiple Storage Options** - localStorage, cookies, memory, or custom adapters
-- **Automatic Token Refresh** - Handles expired tokens seamlessly
-- **Production Ready** - Caching, monitoring, retry logic, and circuit breakers
-- **TypeScript First** - Complete type safety and intellisense
-- **Zero Dependencies** - Lightweight core with optional features
+- JWT access + refresh token authentication
+- Automatic token refresh on expiration
+- Clean separation between authentication and permissions
+- Component-wrappable permission system
+- Custom validation support
+- Lightweight with zero dependencies
+- Client-side focused
 
 ## Installation
 
@@ -36,184 +18,287 @@ Universal authentication client for JavaScript applications with production-read
 npm install @jmndao/auth-flow
 ```
 
+## Architecture
+
+AuthFlow uses a clean separation of concerns:
+
+- **Auth**: Handles authentication (login, logout, token management)
+- **Permissions**: Handles authorization (roles, permissions, guards)
+
 ## Quick Start
 
 ```typescript
-import { createAuthFlow } from '@jmndao/auth-flow';
+import { createAuthFlow, Permissions } from '@jmndao/auth-flow';
 
+// Create auth instance
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  endpoints: {
-    login: '/auth/login',
-    refresh: '/auth/refresh',
-  },
-  tokens: {
-    access: 'accessToken',
-    refresh: 'refreshToken',
-  },
 });
 
 // Login
-const user = await auth.login({
+await auth.login({
   email: 'user@example.com',
   password: 'password',
 });
 
 // Make authenticated requests
-const data = await auth.get('/api/profile');
+const profile = await auth.get('/user/profile');
 
-// Check authentication
-const isAuth = auth.isAuthenticated();
+// Check authentication (token validity)
+if (auth.isAuthenticated()) {
+  console.log('User is authenticated');
+}
+
+// Create permission checker
+const permissions = Permissions.createPermissionChecker(auth);
+
+// Check permissions separately
+if (permissions.hasRole('admin')) {
+  console.log('User is admin');
+}
+
+if (permissions.hasPermission('posts:write')) {
+  console.log('User can write posts');
+}
 ```
 
-## Cookie-Based Authentication
+## Authentication with Custom Validation
+
+### Configuration-Based Custom Validation
 
 ```typescript
 const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  tokenSource: 'cookies',
-  storage: {
-    type: 'cookies',
-    options: {
-      secure: true,
-      sameSite: 'lax',
-    },
+  validateAuth: (tokens) => {
+    // Custom business logic
+    if (!tokens) return false;
+
+    // Example: Check if user is in working hours
+    const now = new Date();
+    const isWorkingHours = now.getHours() >= 9 && now.getHours() < 17;
+
+    return isWorkingHours && customBusinessLogic(tokens);
   },
-  tokens: { access: 'authToken', refresh: 'refreshToken' },
-  endpoints: { login: '/login', refresh: '/refresh' },
 });
+
+// Uses custom validator
+auth.isAuthenticated();
 ```
 
-## Next.js Server Components
+### Parameter-Based Override
 
 ```typescript
-import { cookies } from 'next/headers';
-import { createAuthFlow } from '@jmndao/auth-flow';
-
-export async function getProfile() {
-  const cookieStore = await cookies();
-
-  const auth = createAuthFlow(config, {
-    cookies: () => cookieStore,
-    cookieSetter: (name, value, options) => {
-      cookieStore.set(name, value, options);
-    },
-  });
-
-  return await auth.get('/api/profile');
-}
-```
-
-## Enhanced Client (v2)
-
-```typescript
-import { createAuthFlowV2 } from '@jmndao/auth-flow/v2';
-
-const auth = createAuthFlowV2({
+const auth = createAuthFlow({
   baseURL: 'https://api.example.com',
-  caching: { enabled: true, defaultTTL: 300000 },
-  monitoring: { enabled: true },
-  circuitBreaker: { threshold: 5 },
-  retry: { attempts: 3, strategy: 'exponential' },
+  validateAuth: () => false, // Config always denies
+});
+
+// Default behavior (uses config)
+auth.isAuthenticated(); // false
+
+// Override with parameter
+auth.isAuthenticated(() => true); // true
+auth.isAuthenticated(customValidator);
+```
+
+### Using Permission Validators in Auth
+
+```typescript
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  // Use permission validator as auth validator
+  validateAuth: Permissions.RBAC.requireRole('admin'),
+});
+
+// Only admin users will be considered "authenticated"
+auth.isAuthenticated();
+```
+
+## Permission System
+
+### Permission Checker
+
+```typescript
+const permissions = Permissions.createPermissionChecker(auth);
+
+// Role checks
+permissions.hasRole('admin');
+permissions.hasAnyRole('admin', 'moderator');
+permissions.hasAllRoles('editor', 'reviewer');
+
+// Permission checks
+permissions.hasPermission('posts:write');
+permissions.hasAnyPermission('posts:read', 'posts:write');
+permissions.hasAllPermissions('posts:write', 'posts:publish');
+
+// Attribute checks
+permissions.hasAttribute('department', 'engineering');
+
+// Get raw claims
+const claims = permissions.getClaims();
+
+// Custom validation
+permissions.check((tokens) => customLogic(tokens));
+```
+
+### Permission Validators
+
+Use as standalone validators or in auth configuration:
+
+```typescript
+// RBAC validators
+const adminValidator = Permissions.RBAC.requireRole('admin');
+const editorValidator = Permissions.RBAC.requireAnyRole('editor', 'author');
+
+// ABAC validators
+const writeValidator = Permissions.ABAC.requirePermission('posts:write');
+const deptValidator = Permissions.ABAC.create({
+  rules: [Permissions.Rules.inDepartment('engineering')],
+  mode: 'all',
+});
+
+// Combine validators
+const complexValidator = Permissions.combineValidators(adminValidator, writeValidator, (tokens) =>
+  customBusinessLogic(tokens)
+);
+
+// Use in auth
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  validateAuth: complexValidator,
 });
 ```
 
-## HTTP Methods
+### Component Guards
+
+Create framework-specific permission guards:
 
 ```typescript
-// All HTTP methods supported
-const users = await auth.get('/api/users');
-const newUser = await auth.post('/api/users', userData);
-const updated = await auth.put('/api/users/1', updates);
-const patched = await auth.patch('/api/users/1', { status: 'active' });
-await auth.delete('/api/users/1');
-```
-
-## Token Management
-
-```typescript
-// Get current tokens
-const tokens = await auth.getTokens();
-
-// Set tokens manually
-await auth.setTokens({
-  accessToken: 'token',
-  refreshToken: 'refresh',
+// React example
+const RequireRole = Permissions.createRoleGuard((hasRole, children, fallback) => {
+  return hasRole ? children : (fallback || null);
 });
 
-// Clear tokens
-await auth.clearTokens();
+const RequirePermission = Permissions.createPermissionGrantGuard((hasPermission, children, fallback) => {
+  return hasPermission ? children : (fallback || null);
+});
 
-// Check authentication status
-const isAuth = auth.isAuthenticated();
-```
+// Usage in components
+function AdminPanel() {
+  return (
+    <RequireRole
+      auth={auth}
+      role="admin"
+      fallback={<AccessDenied />}
+      onDenied={() => console.log('Access denied')}
+    >
+      <AdminContent />
+    </RequireRole>
+  );
+}
 
-## Framework Compatibility
-
-AuthFlow works with all major JavaScript frameworks:
-
-- **✅ Next.js** - App Router and Pages Router support
-- **✅ React** - Client and server components
-- **✅ Vue/Nuxt** - Composition and Options API
-- **✅ Express** - Middleware and route handlers
-- **✅ SvelteKit** - Server and client-side
-- **✅ Vanilla JS** - Browser and Node.js environments
-
-## Configuration Presets
-
-```typescript
-import {
-  createProductionAuthFlow,
-  createPerformantAuthFlow,
-  createSecureAuthFlow,
-  createResilientAuthFlow,
-} from '@jmndao/auth-flow/v2';
-
-// Production-ready with monitoring
-const prodAuth = createProductionAuthFlow('https://api.example.com');
-
-// High-performance with caching
-const fastAuth = createPerformantAuthFlow('https://api.example.com');
-
-// Security-focused with encryption
-const secureAuth = createSecureAuthFlow('https://api.example.com', 'encryption-key', 'signing-key');
-
-// Resilient for unreliable networks
-const resilientAuth = createResilientAuthFlow('https://api.example.com');
-```
-
-## Error Handling
-
-```typescript
-try {
-  await auth.login(credentials);
-} catch (error) {
-  if (error.status === 401) {
-    console.log('Invalid credentials');
-  } else if (error.status === 0) {
-    console.log('Network error');
-  }
+function PostEditor() {
+  return (
+    <RequirePermission
+      auth={auth}
+      permission="posts:write"
+      fallback={<ReadOnlyView />}
+    >
+      <EditForm />
+    </RequirePermission>
+  );
 }
 ```
 
-## Documentation
+## Combining Auth and Permissions
 
-- [API Reference](./docs/api-reference.md) - Complete API documentation
-- [Examples](./docs/examples.md) - Real-world usage examples
-- [Troubleshooting](./docs/troubleshooting.md) - Common issues and solutions
-- [Middleware Setup](./docs/middleware-setup.md) - Next.js middleware configuration
+### Flexible Validation Patterns
 
-## Environment Support
+```typescript
+const auth = createAuthFlow({
+  baseURL: 'https://api.example.com',
+  validateAuth: (tokens) => {
+    // Base business logic validation
+    return tokens !== null && isWorkingHours();
+  },
+});
 
-- **Browsers** - All modern browsers
-- **Node.js** - Version 16 and above
-- **React Native** - With AsyncStorage
-- **Edge Runtime** - Vercel, Cloudflare Workers
+const permissions = Permissions.createPermissionChecker(auth);
 
-## Contributing
+// Different validation levels
+if (auth.isAuthenticated()) {
+  // User passes business logic validation
+}
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md).
+if (auth.isAuthenticated(Permissions.RBAC.requireRole('admin'))) {
+  // User passes business logic AND has admin role
+}
+
+if (permissions.hasRole('admin')) {
+  // User has admin role (independent of auth validation)
+}
+
+// Complex combined validation
+const isSeniorManager = (tokens) => {
+  const roleCheck = Permissions.RBAC.requireRole('manager')(tokens);
+  const attrCheck = permissions.hasAttribute('level', 'senior');
+  const businessCheck = customBusinessLogic(tokens);
+
+  return roleCheck && attrCheck && businessCheck;
+};
+
+if (auth.isAuthenticated(isSeniorManager)) {
+  // Senior manager with business logic validation
+}
+```
+
+## API Reference
+
+### Auth Methods
+
+- `auth.login(credentials)` - Authenticate user
+- `auth.logout()` - Log out and clear tokens
+- `auth.isAuthenticated(validator?)` - Check authentication
+- `auth.getTokens()` - Get stored tokens
+- `auth.setTokens(tokens)` - Set tokens manually
+- `auth.get/post/put/patch/delete(url, data?, config?)` - HTTP methods
+
+### Permission Methods
+
+- `permissions.hasRole(role)` - Check single role
+- `permissions.hasAnyRole(...roles)` - Check any role
+- `permissions.hasAllRoles(...roles)` - Check all roles
+- `permissions.hasPermission(permission)` - Check single permission
+- `permissions.hasAnyPermission(...permissions)` - Check any permission
+- `permissions.hasAllPermissions(...permissions)` - Check all permissions
+- `permissions.hasAttribute(key, value)` - Check attribute value
+- `permissions.getClaims()` - Get JWT claims
+- `permissions.check(validator)` - Custom validation
+
+### Validators
+
+- `Permissions.RBAC.requireRole(role)` - Role validator
+- `Permissions.RBAC.requireAnyRole(...roles)` - Any role validator
+- `Permissions.RBAC.requireAllRoles(...roles)` - All roles validator
+- `Permissions.ABAC.requirePermission(permission)` - Permission validator
+- `Permissions.ABAC.create(config)` - Custom ABAC validator
+- `Permissions.combineValidators(...validators)` - Combine multiple
+
+## JWT Token Structure
+
+Expected JWT payload structure:
+
+```json
+{
+  "sub": "user123",
+  "roles": ["admin", "user"],
+  "permissions": ["posts:read", "posts:write"],
+  "department": "engineering",
+  "level": "senior",
+  "exp": 1640995200
+}
+```
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT
