@@ -99,15 +99,18 @@ export class AuthManager {
     try {
       await this.refreshPromise;
 
-      // Retry request with new token
+      // Retry request with new token (create new config to avoid mutation)
       const newAccessToken = this.tokenStore.getAccessToken();
       if (newAccessToken) {
-        config.headers = {
-          ...config.headers,
-          Authorization: `Bearer ${newAccessToken}`,
+        const retryConfig: RequestConfig = {
+          ...config,
+          headers: {
+            ...config.headers,
+            Authorization: `Bearer ${newAccessToken}`,
+          },
+          isRetry: true,
         };
-        config.isRetry = true;
-        return this.httpClient.request<T>(method, url, data, config);
+        return this.httpClient.request<T>(method, url, data, retryConfig);
       }
 
       throw new Error('No access token after refresh');
