@@ -1,6 +1,6 @@
 {
   "name": "@jmndao/auth-flow",
-  "version": null,
+  "version": "2.2.0",
   "description": "Simple, clean authentication flow for client-side applications with automatic token management",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
@@ -84,12 +84,6 @@
       "import": "./dist/index.esm.js",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    }
-  },
-  "standard-version": {
-    "releaseCommitMessageFormat": "chore(release): {{currentTag}}",
-    "scripts": {
-      "prebump": "npm run pre-commit"
     }
   }
 }
