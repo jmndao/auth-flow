@@ -1,6 +1,6 @@
 {
   "name": "@jmndao/auth-flow",
-  "version": "3.9.9",
+  "version": null,
   "description": "Simple, clean authentication flow for client-side applications with automatic token management",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
