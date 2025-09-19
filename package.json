@@ -89,8 +89,7 @@
   "standard-version": {
     "releaseCommitMessageFormat": "chore(release): {{currentTag}}",
     "scripts": {
-      "prebump": "npm run pre-commit",
-      "precommit": "npm run build"
+      "prebump": "npm run pre-commit"
     }
   }
 }
