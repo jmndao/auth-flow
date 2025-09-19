@@ -1,4 +1,5 @@
 import { TokenPair, StorageAdapter } from './types';
+import { isJWTExpired } from './utils/jwt';
 
 /**
  * Token storage and validation
@@ -66,27 +67,10 @@ export class TokenStore {
   }
 
   /**
-   * Check if JWT token is expired
+   * Check if JWT token is expired using secure utility
    */
   isTokenExpired(token: string): boolean {
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) {
-        return true; // Not a valid JWT
-      }
-
-      const payload = JSON.parse(atob(parts[1]));
-
-      // If no expiration claim, assume not expired
-      if (!payload.exp) {
-        return false;
-      }
-
-      const now = Math.floor(Date.now() / 1000);
-      return payload.exp < now;
-    } catch {
-      return true; // Invalid token format
-    }
+    return isJWTExpired(token);
   }
 
   /**

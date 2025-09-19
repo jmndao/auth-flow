@@ -1,4 +1,5 @@
 import { TokenPair, UserClaims, PermissionValidator } from '../types';
+import { extractJWTClaims } from '../utils/jwt';
 import { Auth } from '../auth';
 
 /**
@@ -19,28 +20,13 @@ export class PermissionChecker {
   }
 
   /**
-   * Extract user claims from JWT token
-   */
-  private extractClaims(token: string): UserClaims | null {
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) return null;
-
-      const payload = JSON.parse(atob(parts[1]));
-      return payload;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Get current user claims
+   * Get current user claims using secure JWT utility
    */
   getClaims(): UserClaims | null {
     const tokens = this.getTokens();
     if (!tokens) return null;
 
-    return this.extractClaims(tokens.accessToken);
+    return extractJWTClaims(tokens.accessToken);
   }
 
   /**

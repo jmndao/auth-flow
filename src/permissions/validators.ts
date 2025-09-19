@@ -6,21 +6,7 @@ import {
   ABACRule,
   PermissionValidator,
 } from '../types';
-
-/**
- * Extract user claims from JWT token
- */
-function extractClaims(token: string): UserClaims | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    const payload = JSON.parse(atob(parts[1]));
-    return payload;
-  } catch {
-    return null;
-  }
-}
+import { extractJWTClaims } from '../utils/jwt';
 
 /**
  * Check if user has required roles
@@ -59,7 +45,7 @@ export const RBAC = {
     return (tokens: TokenPair | null): boolean => {
       if (!tokens) return false;
 
-      const claims = extractClaims(tokens.accessToken);
+      const claims = extractJWTClaims(tokens.accessToken);
       if (!claims) return false;
 
       return hasRequiredRoles(claims.roles, config.requiredRoles, config.mode);
@@ -144,7 +130,7 @@ export const ABAC = {
     return (tokens: TokenPair | null): boolean => {
       if (!tokens) return false;
 
-      const claims = extractClaims(tokens.accessToken);
+      const claims = extractJWTClaims(tokens.accessToken);
       if (!claims) return false;
 
       return evaluateRules(claims, config.rules, config.mode);
