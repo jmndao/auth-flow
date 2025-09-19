@@ -1,8 +1,6 @@
 name: Release
 
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
     inputs:
       release_type:
@@ -18,85 +16,34 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    if: '!contains(github.event.head_commit.message, "chore(release)")'
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          node-version: '18'
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
 
       - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Run tests and build
-        run: |
-          npm run type-check
-          npm run lint:check
-          npm run test
-          npm run build
+      - name: Release
+        run: npm run release:${{ github.event.inputs.release_type }}
 
-      - name: Determine release type
-        id: release_type
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "type=${{ github.event.inputs.release_type }}" >> $GITHUB_OUTPUT
-          else
-            # Auto-determine based on commit messages since last tag
-            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-            if [[ -z "$LAST_TAG" ]]; then
-              echo "type=patch" >> $GITHUB_OUTPUT
-            else
-              COMMITS=$(git log --pretty=format:"%s" ${LAST_TAG}..HEAD)
-              if echo "$COMMITS" | grep -qE "^(feat|feature)(\(.+\))?!?:"; then
-                if echo "$COMMITS" | grep -qE "^.+!:"; then
-                  echo "type=major" >> $GITHUB_OUTPUT
-                else
-                  echo "type=minor" >> $GITHUB_OUTPUT
-                fi
-              else
-                echo "type=patch" >> $GITHUB_OUTPUT
-              fi
-            fi
-          fi
-
-      - name: Create release
-        run: |
-          npm run release:${{ steps.release_type.outputs.type }}
-
-      - name: Push changes
+      - name: Publish
         run: |
           git push --follow-tags origin master
-
-      - name: Publish to NPM
-        run: npm publish
+          npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.get_version.outputs.version }}
-          release_name: Release ${{ steps.get_version.outputs.version }}
-          body_path: CHANGELOG.md
-          draft: false
-          prerelease: false
-
-      - name: Get version
-        id: get_version
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
