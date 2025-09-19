@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "README.md",
+    "readme.md",
     "LICENSE"
   ],
   "scripts": {
