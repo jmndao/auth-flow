@@ -45,7 +45,7 @@ export interface HttpResponse<T = unknown> {
 export interface RequestConfig {
   headers?: Record<string, string>;
   timeout?: number;
-  isRetry?: boolean; 
+  isRetry?: boolean;
   [key: string]: any;
 }
 
